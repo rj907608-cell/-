@@ -1,0 +1,18 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Center circular white plate -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,26 C69.464,26 82,38.536 82,54 C82,69.464 69.464,82 54,82 C38.536,82 26,69.464 26,54 C26,38.536 38.536,26 54,26 Z" />
+    <!-- Medical Cross in emerald green -->
+    <path
+        android:fillColor="#00796B"
+        android:pathData="M50,34 L58,34 C59.1,34 60,34.9 60,36 L60,48 L72,48 C73.1,48 74,48.9 74,50 L74,58 C74,59.1 73.1,60 72,60 L60,60 L60,72 C60,73.1 59.1,74 58,74 L50,74 C48.9,74 48,73.1 48,72 L48,60 L36,60 C34.9,60 34,59.1 34,58 L34,50 C34,48.9 34.9,48 36,48 L48,48 L48,36 C48,34.9 48.9,34 50,34 Z" />
+    <!-- Center white pill/heart accent -->
+    <path
+        android:fillColor="#80CBC4"
+        android:pathData="M51,51 L57,51 C58.1,51 59,51.9 59,53 L59,55 C59,56.1 58.1,57 57,57 L51,57 C49.9,57 49,56.1 49,55 L49,53 C49,51.9 49.9,51 51,51 Z" />
+</vector>
