@@ -25,22 +25,27 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
-
-      - name: Restore Debug Keystore
+      - name: Prepare Build Environment & Keystore
         run: |
-          if [ -f "debug.keystore.base64" ] && [ ! -f "debug.keystore" ]; then
-            base64 -d debug.keystore.base64 > debug.keystore
+          chmod +x gradlew || true
+          # إنشاء مفتاح debug.keystore تلقائياً في حال لم يكن مرفوعاً
+          if [ ! -f "debug.keystore" ]; then
+            if [ -f "debug.keystore.base64" ]; then
+              base64 -d debug.keystore.base64 > debug.keystore
+            else
+              keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+            fi
+          fi
+          # إنشاء ملف .env افتراضي في حال عدم وجوده
+          if [ ! -f ".env" ]; then
+            touch .env
           fi
 
-      - name: Setup Android SDK Build Environment
-        uses: android-actions/setup-android@v3
-
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --stacktrace --no-daemon
+        run: ./gradlew assembleDebug --stacktrace --no-daemon --no-configuration-cache
 
       - name: Upload Debug APK Artifact
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: pharmacy-app-debug
