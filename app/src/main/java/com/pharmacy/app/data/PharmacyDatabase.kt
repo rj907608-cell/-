@@ -21,18 +21,38 @@ import kotlinx.coroutines.flow.Flow
 data class MedicineEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
-    val name: String,
-    val barcode: String,
-    val buyPrice: Double,
-    val sellPrice: Double,
-    val quantity: Int,
-    val minStockAlert: Int = 5,
-    val expiryDate: Long, // Epoch timestamp in milliseconds
+    val name: String = "",
+    val barcode: String = "",
+    val buyPrice: Double = 0.0,
+    val sellPrice: Double = 0.0,
+    val quantity: Int = 0,
+    val minStockAlert: Int = 0,
+    val expiryDate: Long = 0L, // 0L يعني غير محدد
     val category: String = "أدوية عامة",
-    val location: String = "رف A-1",
+    val location: String = "",
     val notes: String = "",
+    val batchesJson: String = "",
     val createdAt: Long = System.currentTimeMillis()
-)
+) {
+    /**
+     * استرجاع قائمة الدفعات المسجلة للدواء مع تفاصيل الكمية والسعر لكل دفعة
+     */
+    fun getBatches(): List<MedicineBatch> {
+        val parsed = BatchConverter.fromJson(batchesJson)
+        if (parsed.isNotEmpty()) return parsed
+        return if (quantity > 0) {
+            listOf(
+                MedicineBatch(
+                    batchNumber = 1,
+                    quantity = quantity,
+                    buyPrice = buyPrice,
+                    sellPrice = sellPrice,
+                    dateAdded = createdAt
+                )
+            )
+        } else emptyList()
+    }
+}
 
 /**
  * سجل المبيعات (Sales Record)
@@ -69,6 +89,9 @@ interface PharmacyDao {
     @Query("SELECT * FROM medicines WHERE barcode = :barcode LIMIT 1")
     suspend fun getMedicineByBarcode(barcode: String): MedicineEntity?
 
+    @Query("SELECT * FROM medicines WHERE name = :name LIMIT 1")
+    suspend fun getMedicineByName(name: String): MedicineEntity?
+
     @Query("SELECT * FROM medicines WHERE barcode = :barcode LIMIT 1")
     fun getMedicineByBarcodeFlow(barcode: String): Flow<MedicineEntity?>
 
@@ -78,10 +101,10 @@ interface PharmacyDao {
     @Query("SELECT * FROM medicines WHERE quantity <= minStockAlert ORDER BY quantity ASC")
     fun getLowStockMedicines(): Flow<List<MedicineEntity>>
 
-    @Query("SELECT * FROM medicines WHERE expiryDate <= :futureTimestamp ORDER BY expiryDate ASC")
+    @Query("SELECT * FROM medicines WHERE expiryDate > 0 AND expiryDate <= :futureTimestamp ORDER BY expiryDate ASC")
     fun getExpiringSoonMedicines(futureTimestamp: Long): Flow<List<MedicineEntity>>
 
-    @Query("SELECT * FROM medicines WHERE expiryDate < :currentTimestamp ORDER BY expiryDate ASC")
+    @Query("SELECT * FROM medicines WHERE expiryDate > 0 AND expiryDate < :currentTimestamp ORDER BY expiryDate ASC")
     fun getExpiredMedicines(currentTimestamp: Long): Flow<List<MedicineEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -121,6 +144,12 @@ interface PharmacyDao {
     @Query("SELECT COALESCE(SUM(quantitySold), 0) FROM sales")
     fun getTotalItemsSold(): Flow<Int>
 
+    @Query("SELECT * FROM sales WHERE invoiceId = :invoiceId")
+    suspend fun getSalesByInvoiceId(invoiceId: String): List<SaleRecordEntity>
+
+    @Query("DELETE FROM sales WHERE invoiceId = :invoiceId")
+    suspend fun deleteSalesByInvoiceId(invoiceId: String): Int
+
     @Query("SELECT COUNT(*) FROM medicines")
     suspend fun getMedicineCount(): Int
 }
@@ -130,7 +159,7 @@ interface PharmacyDao {
  */
 @Database(
     entities = [MedicineEntity::class, SaleRecordEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class PharmacyDatabase : RoomDatabase() {

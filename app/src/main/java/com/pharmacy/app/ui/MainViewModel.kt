@@ -9,13 +9,17 @@ import com.pharmacy.app.data.MedicineEntity
 import com.pharmacy.app.data.PharmacyDatabase
 import com.pharmacy.app.data.PharmacyRepository
 import com.pharmacy.app.data.SaleRecordEntity
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -23,7 +27,7 @@ import kotlinx.coroutines.launch
 /**
  * مدير حالة التطبيق الرئيسي (Main ViewModel)
  */
-@OptIn(ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: PharmacyRepository
@@ -58,6 +62,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     )
 
     val searchResults: StateFlow<List<MedicineEntity>> = searchQuery
+        .debounce(250L)
         .flatMapLatest { query ->
             if (query.isBlank()) {
                 repository.allMedicines
@@ -65,6 +70,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 repository.searchMedicines(query)
             }
         }
+        .flowOn(Dispatchers.Default)
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.Eagerly,
@@ -72,17 +78,60 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
 
     // --- التنبيهات (صلاحية ونواقص) ---
-    val lowStockMedicines: StateFlow<List<MedicineEntity>> = repository.lowStockMedicines.stateIn(
+    private val _expiryAlertDays = MutableStateFlow(prefs.getInt("pref_expiry_alert_days", 30))
+    val expiryAlertDays: StateFlow<Int> = _expiryAlertDays.asStateFlow()
+
+    fun updateExpiryAlertDays(days: Int) {
+        val validDays = days.coerceAtLeast(1)
+        _expiryAlertDays.value = validDays
+        prefs.edit().putInt("pref_expiry_alert_days", validDays).apply()
+        _uiMessage.value = "تم ضبط مدة تنبيه انتهاء الصلاحية على $validDays يوماً"
+    }
+
+    // استرجاع وحفظ معرفات التنبيهات التي تم تأكيد توريدها في SharedPreferences
+    private fun loadDismissedLowStockIds(): Set<Long> {
+        val raw = prefs.getStringSet("pref_dismissed_low_stock_ids", emptySet()) ?: emptySet()
+        return raw.mapNotNull { it.toLongOrNull() }.toSet()
+    }
+
+    private val _dismissedLowStockIds = MutableStateFlow<Set<Long>>(loadDismissedLowStockIds())
+    val dismissedLowStockIds: StateFlow<Set<Long>> = _dismissedLowStockIds.asStateFlow()
+
+    fun dismissLowStockAlert(medicineId: Long) {
+        val updated = _dismissedLowStockIds.value + medicineId
+        _dismissedLowStockIds.value = updated
+        prefs.edit().putStringSet("pref_dismissed_low_stock_ids", updated.map { it.toString() }.toSet()).apply()
+        _uiMessage.value = "تم تحديد الدواء كتم التوريد وحذف التنبيه بنجاح"
+    }
+
+    private fun undismissLowStockAlert(medicineId: Long) {
+        if (medicineId in _dismissedLowStockIds.value) {
+            val updated = _dismissedLowStockIds.value - medicineId
+            _dismissedLowStockIds.value = updated
+            prefs.edit().putStringSet("pref_dismissed_low_stock_ids", updated.map { it.toString() }.toSet()).apply()
+        }
+    }
+
+    val lowStockMedicines: StateFlow<List<MedicineEntity>> = combine(
+        repository.lowStockMedicines,
+        _dismissedLowStockIds
+    ) { list, dismissed ->
+        list.filter { it.id !in dismissed }
+    }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.Eagerly,
         initialValue = emptyList()
     )
 
-    val expiringSoonMedicines: StateFlow<List<MedicineEntity>> = repository.getExpiringSoonMedicines(90).stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.Eagerly,
-        initialValue = emptyList()
-    )
+    val expiringSoonMedicines: StateFlow<List<MedicineEntity>> = _expiryAlertDays
+        .flatMapLatest { days ->
+            repository.getExpiringSoonMedicines(days)
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = emptyList()
+        )
 
     val expiredMedicines: StateFlow<List<MedicineEntity>> = repository.getExpiredMedicines().stateIn(
         scope = viewModelScope,
@@ -90,8 +139,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         initialValue = emptyList()
     )
 
-    val totalAlertsCount: StateFlow<Int> = combine(lowStockMedicines, expiredMedicines) { low, exp ->
-        low.size + exp.size
+    val totalAlertsCount: StateFlow<Int> = combine(lowStockMedicines, expiredMedicines, expiringSoonMedicines) { low, exp, soon ->
+        low.size + exp.size + soon.size
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.Eagerly,
@@ -100,6 +149,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- المبيعات والتقارير المالية ---
     val allSales: StateFlow<List<SaleRecordEntity>> = repository.allSales.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = emptyList()
+    )
+
+    // تجميع المبيعات إلى فواتير: كل فاتورة تحتوي على رقم الفاتورة، الوقت، الإجمالي، عدد الأدوية
+    val invoices: StateFlow<List<com.pharmacy.app.data.InvoiceSummary>> = allSales.map { sales ->
+        sales.groupBy { it.invoiceId }
+            .map { (invId, items) ->
+                val first = items.first()
+                com.pharmacy.app.data.InvoiceSummary(
+                    invoiceId = invId,
+                    timestamp = first.timestamp,
+                    totalAmount = items.sumOf { it.totalSellPrice },
+                    totalProfit = items.sumOf { it.totalProfit },
+                    itemsCount = items.size, // عدد الأدوية المختلفة في الفاتورة
+                    totalUnitsSold = items.sumOf { it.quantitySold },
+                    items = items
+                )
+            }
+            .sortedByDescending { it.timestamp }
+    }
+    .flowOn(Dispatchers.Default)
+    .stateIn(
         scope = viewModelScope,
         started = SharingStarted.Eagerly,
         initialValue = emptyList()
@@ -242,16 +315,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // --- إدارة الأدوية في المخزون ---
-    fun saveMedicine(medicine: MedicineEntity) {
+    fun addOrAccumulateMedicine(medicine: MedicineEntity) {
         viewModelScope.launch {
-            repository.saveMedicine(medicine)
-            _uiMessage.value = "تم حفظ الدواء بنجاح: ${medicine.name}"
+            val (resultMed, wasAccumulated) = repository.addOrAccumulateMedicine(medicine)
+            if (resultMed.quantity > resultMed.minStockAlert) {
+                undismissLowStockAlert(resultMed.id)
+            }
+            if (wasAccumulated) {
+                _uiMessage.value = "تمت إضافة الكمية (${medicine.quantity}) إلى الدواء '${resultMed.name}'. إجمالي المخزون الحالي: ${resultMed.quantity}"
+            } else {
+                _uiMessage.value = "تمت إضافة الدواء بنجاح للمخزون: ${resultMed.name}"
+            }
         }
+    }
+
+    fun saveMedicine(medicine: MedicineEntity) {
+        addOrAccumulateMedicine(medicine)
     }
 
     fun updateMedicine(medicine: MedicineEntity) {
         viewModelScope.launch {
             repository.updateMedicine(medicine)
+            if (medicine.quantity > medicine.minStockAlert) {
+                undismissLowStockAlert(medicine.id)
+            }
             _uiMessage.value = "تم تحديث الدواء بنجاح: ${medicine.name}"
         }
     }
@@ -262,6 +349,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // إزالته أيضاً من السلة إذا وجد
             removeFromCart(medicine.id)
             _uiMessage.value = "تم حذف الدواء من المخزون: ${medicine.name}"
+        }
+    }
+
+    fun deleteInvoice(invoiceId: String) {
+        viewModelScope.launch {
+            val success = repository.deleteInvoice(invoiceId)
+            if (success) {
+                _uiMessage.value = "تم حذف الفاتورة $invoiceId بنجاح"
+            } else {
+                _uiMessage.value = "تعذر حذف الفاتورة $invoiceId"
+            }
         }
     }
 

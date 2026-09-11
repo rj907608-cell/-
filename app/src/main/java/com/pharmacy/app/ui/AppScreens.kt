@@ -5,6 +5,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -48,9 +49,12 @@ import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.PointOfSale
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
@@ -59,7 +63,10 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
@@ -67,11 +74,15 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -108,9 +119,12 @@ import com.example.ui.theme.StatusAlertRed
 import com.example.ui.theme.StatusSuccessGreen
 import com.example.ui.theme.StatusWarningAmber
 import com.pharmacy.app.data.CartItem
+import com.pharmacy.app.data.InvoiceSummary
+import com.pharmacy.app.data.MedicineBatch
 import com.pharmacy.app.data.MedicineEntity
 import com.pharmacy.app.data.SaleRecordEntity
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -136,6 +150,7 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
     var showScannerDialog by remember { mutableStateOf(false) }
     var medicineToEdit by remember { mutableStateOf<MedicineEntity?>(null) }
     var showAddMedicineDialog by remember { mutableStateOf(false) }
+    var showSettingsDialog by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val uiMessage by viewModel.uiMessage.collectAsStateWithLifecycle()
@@ -205,6 +220,18 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
                         Icon(
                             imageVector = Icons.Default.QrCodeScanner,
                             contentDescription = "مسح الباركود",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    // زر إعدادات الصيدلية والتنبيهات
+                    IconButton(
+                        onClick = { showSettingsDialog = true },
+                        modifier = Modifier.testTag("open_settings_action")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "الإعدادات والتنبيهات",
                             tint = MaterialTheme.colorScheme.primary
                         )
                     }
@@ -282,13 +309,21 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
                 )
                 AppTab.ALERTS -> AlertsScreen(
                     viewModel = viewModel,
-                    onRestock = { med ->
-                        viewModel.adjustStock(med.id, 10)
-                    }
+                    onOpenSettings = { showSettingsDialog = true }
                 )
                 AppTab.REPORTS -> ReportsScreen(viewModel = viewModel)
             }
         }
+    }
+
+    // نافذة إعدادات الصيدلية والتنبيهات
+    val expiryAlertDays by viewModel.expiryAlertDays.collectAsStateWithLifecycle()
+    if (showSettingsDialog) {
+        SettingsDialog(
+            currentExpiryDays = expiryAlertDays,
+            onSaveExpiryDays = { days -> viewModel.updateExpiryAlertDays(days) },
+            onDismiss = { showSettingsDialog = false }
+        )
     }
 
     // نافذة ماسح الباركود
@@ -338,7 +373,6 @@ fun PosScreen(
 ) {
     val cart by viewModel.cart.collectAsStateWithLifecycle()
     val cartTotal by viewModel.cartTotal.collectAsStateWithLifecycle()
-    val cartProfit by viewModel.cartProfit.collectAsStateWithLifecycle()
     val medicines by viewModel.searchResults.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
 
@@ -470,14 +504,9 @@ fun PosScreen(
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
                         text = "الأصناف: ${cart.sumOf { it.quantity }} قطعة",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                    Text(
-                        text = "الربح المتوقع: +${String.format(Locale.US, "%.2f", cartProfit)} ل.س",
-                        fontSize = 12.sp,
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.Medium,
-                        color = StatusSuccessGreen
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
             }
@@ -720,6 +749,8 @@ fun InventoryScreen(
 
         Spacer(modifier = Modifier.height(6.dp))
 
+        val expiryAlertDays by viewModel.expiryAlertDays.collectAsStateWithLifecycle()
+
         // قائمة بطاقات الأدوية
         if (filteredList.isEmpty()) {
             Box(
@@ -739,6 +770,7 @@ fun InventoryScreen(
                 items(filteredList, key = { it.id }) { med ->
                     MedicineItemCard(
                         medicine = med,
+                        expiryAlertDays = expiryAlertDays,
                         onEdit = { onEditMedicine(med) },
                         onDelete = { viewModel.deleteMedicine(med) },
                         onStockAdjust = { delta -> viewModel.adjustStock(med.id, delta) },
@@ -756,25 +788,33 @@ fun InventoryScreen(
 @Composable
 fun MedicineItemCard(
     medicine: MedicineEntity,
+    expiryAlertDays: Int = 30,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onStockAdjust: (Int) -> Unit,
     onAddToCart: () -> Unit
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showBatchDetailsDialog by remember { mutableStateOf(false) }
 
     val isLowStock = medicine.quantity <= medicine.minStockAlert
-    val isExpired = medicine.expiryDate < System.currentTimeMillis()
-    val isExpiringSoon = !isExpired && medicine.expiryDate <= (System.currentTimeMillis() + (90L * 24 * 60 * 60 * 1000))
+    val isExpired = medicine.expiryDate > 0L && medicine.expiryDate < System.currentTimeMillis()
+    val isExpiringSoon = medicine.expiryDate > 0L && !isExpired && medicine.expiryDate <= (System.currentTimeMillis() + (expiryAlertDays.toLong() * 24 * 60 * 60 * 1000))
 
     val dateFormat = remember { SimpleDateFormat("yyyy/MM/dd", Locale.US) }
-    val formattedExpiry = remember(medicine.expiryDate) { dateFormat.format(Date(medicine.expiryDate)) }
+    val formattedExpiry = remember(medicine.expiryDate) {
+        if (medicine.expiryDate > 0L) dateFormat.format(Date(medicine.expiryDate)) else "غير محدد"
+    }
+    val batches = remember(medicine.batchesJson, medicine.quantity) { medicine.getBatches() }
 
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { showBatchDetailsDialog = true }
+            .testTag("medicine_card_${medicine.id}")
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             // الصف العلوي: الاسم والشارات
@@ -789,15 +829,31 @@ fun MedicineItemCard(
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
+                    val locationText = if (medicine.location.isNotBlank()) " • المكان: ${medicine.location}" else ""
                     Text(
-                        text = "${medicine.category} • المكان: ${medicine.location}",
+                        text = "${medicine.category}$locationText",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
-                // شارات التنبيه
+                // شارات التنبيه والدفعات
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (batches.size > 1) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Text(
+                                text = "${batches.size} دفعات",
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+
                     if (isExpired) {
                         Surface(
                             shape = RoundedCornerShape(8.dp),
@@ -960,7 +1016,7 @@ fun MedicineItemCard(
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
             title = { Text("حذف الدواء") },
-            text = { Text("هل أنت متأكد من رغبتك في حذف '${medicine.name}' نهائياً من قاعدة بيانات الصيدلية؟") },
+            text = { Text("هل تريد حذف الدواء بالكامل من الصيدلية؟") },
             confirmButton = {
                 Button(
                     onClick = {
@@ -979,6 +1035,13 @@ fun MedicineItemCard(
             }
         )
     }
+
+    if (showBatchDetailsDialog) {
+        MedicineBatchDetailsDialog(
+            medicine = medicine,
+            onDismiss = { showBatchDetailsDialog = false }
+        )
+    }
 }
 
 /**
@@ -987,11 +1050,12 @@ fun MedicineItemCard(
 @Composable
 fun AlertsScreen(
     viewModel: MainViewModel,
-    onRestock: (MedicineEntity) -> Unit
+    onOpenSettings: () -> Unit = {}
 ) {
     val lowStockMedicines by viewModel.lowStockMedicines.collectAsStateWithLifecycle()
     val expiredMedicines by viewModel.expiredMedicines.collectAsStateWithLifecycle()
     val expiringSoonMedicines by viewModel.expiringSoonMedicines.collectAsStateWithLifecycle()
+    val expiryAlertDays by viewModel.expiryAlertDays.collectAsStateWithLifecycle()
 
     var activeAlertTab by remember { mutableIntStateOf(0) }
     val alertTabs = listOf(
@@ -1049,8 +1113,8 @@ fun AlertsScreen(
                                 subtitle = "المتبقي: ${med.quantity} عبوة (الحد الأدنى للتنبيه: ${med.minStockAlert})",
                                 alertText = "المخزون أوشك على النفاد، قم بطلب توريد جديد",
                                 alertColor = StatusWarningAmber,
-                                actionLabel = "+ توريد 10 عبوات",
-                                onAction = { onRestock(med) }
+                                actionLabel = "تم التوريد",
+                                onAction = { viewModel.dismissLowStockAlert(med.id) }
                             )
                         }
                     }
@@ -1058,8 +1122,34 @@ fun AlertsScreen(
             }
             2 -> {
                 // قريبة الانتهاء
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "التنبيه عند بقاء $expiryAlertDays يوماً أو أقل",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    TextButton(
+                        onClick = onOpenSettings,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Tune,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("تعديل المهلة ($expiryAlertDays يوم)", fontSize = 12.sp)
+                    }
+                }
+
                 if (expiringSoonMedicines.isEmpty()) {
-                    EmptyAlertPlaceholder("لا توجد أدوية تنتهي صلاحيتها خلال الـ 90 يوماً القادمة.")
+                    EmptyAlertPlaceholder("لا توجد أدوية تنتهي صلاحيتها خلال الـ $expiryAlertDays يوماً القادمة.")
                 } else {
                     val dateFormat = SimpleDateFormat("yyyy/MM/dd", Locale.US)
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1068,7 +1158,7 @@ fun AlertsScreen(
                             AlertItemCard(
                                 title = med.name,
                                 subtitle = "تاريخ الانتهاء: ${dateFormat.format(Date(med.expiryDate))} (متبقي $daysLeft يوم)",
-                                alertText = "الكمية: ${med.quantity} عبوة - يفضل تصريفها أولاً",
+                                alertText = "الدواء على وشك انتهاء الصلاحية",
                                 alertColor = StatusWarningAmber,
                                 actionLabel = "بيع الآن",
                                 onAction = { viewModel.addToCart(med, 1) }
@@ -1158,17 +1248,55 @@ fun AlertItemCard(
 }
 
 /**
+ * فترات التقرير المالي (يومي / شهري)
+ */
+enum class ReportPeriod(val label: String) {
+    DAILY("تقرير يومي"),
+    MONTHLY("تقرير شهري")
+}
+
+/**
  * 4. شاشة التقارير والأرباح (Financial Reports Screen)
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun ReportsScreen(viewModel: MainViewModel) {
-    val totalRevenue by viewModel.totalRevenue.collectAsStateWithLifecycle()
-    val totalProfit by viewModel.totalProfit.collectAsStateWithLifecycle()
-    val totalItemsSold by viewModel.totalItemsSold.collectAsStateWithLifecycle()
-    val allSales by viewModel.allSales.collectAsStateWithLifecycle()
+    val invoices by viewModel.invoices.collectAsStateWithLifecycle()
+    var selectedPeriod by remember { mutableStateOf(ReportPeriod.DAILY) }
 
-    val profitMargin = if (totalRevenue > 0) (totalProfit / totalRevenue) * 100 else 0.0
-    val dateFormat = remember { SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.US) }
+    val filteredInvoices = remember(invoices, selectedPeriod) {
+        val calendarNow = Calendar.getInstance()
+        invoices.filter { inv ->
+            val cal = Calendar.getInstance().apply { timeInMillis = inv.timestamp }
+            when (selectedPeriod) {
+                ReportPeriod.DAILY -> {
+                    calendarNow.get(Calendar.YEAR) == cal.get(Calendar.YEAR) &&
+                    calendarNow.get(Calendar.DAY_OF_YEAR) == cal.get(Calendar.DAY_OF_YEAR)
+                }
+                ReportPeriod.MONTHLY -> {
+                    calendarNow.get(Calendar.YEAR) == cal.get(Calendar.YEAR) &&
+                    calendarNow.get(Calendar.MONTH) == cal.get(Calendar.MONTH)
+                }
+            }
+        }
+    }
+
+    val periodRevenue = remember(filteredInvoices) {
+        filteredInvoices.sumOf { it.totalAmount }
+    }
+    val periodProfit = remember(filteredInvoices) {
+        filteredInvoices.sumOf { it.totalProfit }
+    }
+    val periodItemsSold = remember(filteredInvoices) {
+        filteredInvoices.sumOf { it.totalUnitsSold }
+    }
+    val profitMargin = if (periodRevenue > 0) (periodProfit / periodRevenue) * 100 else 0.0
+
+    // توقيت 12 ساعة (ص/م أو AM/PM)
+    val dateFormat = remember { SimpleDateFormat("yyyy/MM/dd hh:mm a", Locale.getDefault()) }
+
+    var selectedInvoiceForDetails by remember { mutableStateOf<InvoiceSummary?>(null) }
+    var invoiceToDelete by remember { mutableStateOf<InvoiceSummary?>(null) }
 
     Column(
         modifier = Modifier
@@ -1176,18 +1304,46 @@ fun ReportsScreen(viewModel: MainViewModel) {
             .padding(16.dp)
             .verticalScroll(rememberScrollState())
     ) {
-        Text(
-            text = "التقرير المالي والأرباح",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold
-        )
-        Text(
-            text = "حسابات دقيقة للمبيعات والأرباح بناءً على تكلفة الشراء وسعر البيع",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
+        // زر التبديل بين تقرير يومي وتقرير شهري
+        SingleChoiceSegmentedButtonRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp)
+                .testTag("reports_period_selector")
+        ) {
+            SegmentedButton(
+                selected = selectedPeriod == ReportPeriod.DAILY,
+                onClick = { selectedPeriod = ReportPeriod.DAILY },
+                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                icon = {
+                    if (selectedPeriod == ReportPeriod.DAILY) {
+                        SegmentedButtonDefaults.Icon(active = true)
+                    }
+                },
+                modifier = Modifier.testTag("report_daily_btn")
+            ) {
+                Text(
+                    text = "تقرير يومي",
+                    fontWeight = if (selectedPeriod == ReportPeriod.DAILY) FontWeight.Bold else FontWeight.Normal
+                )
+            }
+            SegmentedButton(
+                selected = selectedPeriod == ReportPeriod.MONTHLY,
+                onClick = { selectedPeriod = ReportPeriod.MONTHLY },
+                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                icon = {
+                    if (selectedPeriod == ReportPeriod.MONTHLY) {
+                        SegmentedButtonDefaults.Icon(active = true)
+                    }
+                },
+                modifier = Modifier.testTag("report_monthly_btn")
+            ) {
+                Text(
+                    text = "تقرير شهري",
+                    fontWeight = if (selectedPeriod == ReportPeriod.MONTHLY) FontWeight.Bold else FontWeight.Normal
+                )
+            }
+        }
 
         // شبكة البطاقات المالية
         Row(
@@ -1195,15 +1351,15 @@ fun ReportsScreen(viewModel: MainViewModel) {
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             ReportMetricCard(
-                title = "إجمالي المبيعات",
-                value = "${String.format(Locale.US, "%.2f", totalRevenue)} ل.س",
+                title = if (selectedPeriod == ReportPeriod.DAILY) "مبيعات اليوم" else "مبيعات الشهر",
+                value = "${String.format(Locale.US, "%.2f", periodRevenue)} ل.س",
                 icon = Icons.Default.MonetizationOn,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.weight(1f)
             )
             ReportMetricCard(
-                title = "صافي الأرباح",
-                value = "${String.format(Locale.US, "%.2f", totalProfit)} ل.س",
+                title = if (selectedPeriod == ReportPeriod.DAILY) "أرباح اليوم" else "أرباح الشهر",
+                value = "${String.format(Locale.US, "%.2f", periodProfit)} ل.س",
                 icon = Icons.AutoMirrored.Filled.TrendingUp,
                 color = StatusSuccessGreen,
                 modifier = Modifier.weight(1f)
@@ -1217,8 +1373,8 @@ fun ReportsScreen(viewModel: MainViewModel) {
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             ReportMetricCard(
-                title = "عدد القطع المباعة",
-                value = "$totalItemsSold قطعة",
+                title = "القطع المباعة",
+                value = "$periodItemsSold قطعة",
                 icon = Icons.Default.Inventory2,
                 color = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.weight(1f)
@@ -1235,14 +1391,24 @@ fun ReportsScreen(viewModel: MainViewModel) {
         Spacer(modifier = Modifier.height(20.dp))
 
         Text(
-            text = "سجل المبيعات الأخيرة (${allSales.size} عملية):",
+            text = if (selectedPeriod == ReportPeriod.DAILY) {
+                "سجل المبيعات اليومية (${filteredInvoices.size} فاتورة):"
+            } else {
+                "سجل المبيعات الشهرية (${filteredInvoices.size} فاتورة):"
+            },
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold
+        )
+        Text(
+            text = "اضغط على الفاتورة لعرض تفاصيلها، أو اضغط مطولاً لحذفها",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 11.sp
         )
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        if (allSales.isEmpty()) {
+        if (filteredInvoices.isEmpty()) {
             Surface(
                 shape = RoundedCornerShape(12.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant,
@@ -1251,46 +1417,87 @@ fun ReportsScreen(viewModel: MainViewModel) {
                     .height(120.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Text("لا توجد مبيعات مسجلة حتى الآن", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        text = if (selectedPeriod == ReportPeriod.DAILY) {
+                            "لا توجد فواتير مسجلة اليوم"
+                        } else {
+                            "لا توجد فواتير مسجلة خلال هذا الشهر"
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                allSales.take(30).forEach { sale ->
+                filteredInvoices.take(30).forEach { invoice ->
                     Card(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(14.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .combinedClickable(
+                                onClick = { selectedInvoiceForDetails = invoice },
+                                onLongClick = { invoiceToDelete = invoice }
+                            )
+                            .testTag("invoice_card_${invoice.invoiceId}")
                     ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(12.dp),
+                                .padding(14.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column {
-                                Text(sale.medicineName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                Text(
-                                    text = "فاتورة: ${sale.invoiceId} • ${dateFormat.format(Date(sale.timestamp))}",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text = "الكمية: ${sale.quantitySold} × ${sale.unitSellPrice} ل.س",
-                                    fontSize = 12.sp
-                                )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    modifier = Modifier.size(42.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.ReceiptLong,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = invoice.invoiceId,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = dateFormat.format(Date(invoice.timestamp)),
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = "${invoice.itemsCount} أدوية • ${invoice.totalUnitsSold} قطعة",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                             }
+
                             Column(horizontalAlignment = Alignment.End) {
                                 Text(
-                                    text = "${String.format(Locale.US, "%.2f", sale.totalSellPrice)} ل.س",
+                                    text = "${String.format(Locale.US, "%.2f", invoice.totalAmount)} ل.س",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 15.sp,
                                     color = MaterialTheme.colorScheme.primary
                                 )
                                 Text(
-                                    text = "ربح: +${String.format(Locale.US, "%.2f", sale.totalProfit)} ل.س",
-                                    fontSize = 12.sp,
+                                    text = "ربح: +${String.format(Locale.US, "%.2f", invoice.totalProfit)} ل.س",
+                                    fontSize = 11.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = StatusSuccessGreen
                                 )
@@ -1300,6 +1507,56 @@ fun ReportsScreen(viewModel: MainViewModel) {
                 }
             }
         }
+    }
+
+    // نافذة عرض تفاصيل الأدوية المباعة في الفاتورة المحددة
+    selectedInvoiceForDetails?.let { invoice ->
+        InvoiceDetailsDialog(
+            invoice = invoice,
+            onDismiss = { selectedInvoiceForDetails = null }
+        )
+    }
+
+    // نافذة تأكيد حذف الفاتورة عند الضغط المطول
+    invoiceToDelete?.let { invoice ->
+        AlertDialog(
+            onDismissRequest = { invoiceToDelete = null },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(32.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "حذف الفاتورة",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = "هل أنت متأكد من رغبتك في حذف الفاتورة '${invoice.invoiceId}' وإلغاء جميع سجلات بيع الأدوية المرتبطة بها نهائياً؟"
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteInvoice(invoice.invoiceId)
+                        invoiceToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("نعم، احذف الفاتورة")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { invoiceToDelete = null }) {
+                    Text("إلغاء")
+                }
+            }
+        )
     }
 }
 
@@ -1340,6 +1597,7 @@ fun ReportMetricCard(
 /**
  * نافذة حوار إضافة وتعديل دواء (Add / Edit Medicine Dialog)
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddEditMedicineDialog(
     initialMedicine: MedicineEntity?,
@@ -1350,13 +1608,29 @@ fun AddEditMedicineDialog(
 ) {
     var name by remember { mutableStateOf(initialMedicine?.name ?: "") }
     var barcode by remember { mutableStateOf(if (presetBarcode.isNotBlank()) presetBarcode else (initialMedicine?.barcode ?: "")) }
-    var buyPriceText by remember { mutableStateOf(initialMedicine?.buyPrice?.toString() ?: "") }
-    var sellPriceText by remember { mutableStateOf(initialMedicine?.sellPrice?.toString() ?: "") }
-    var quantityText by remember { mutableStateOf(initialMedicine?.quantity?.toString() ?: "10") }
-    var minStockText by remember { mutableStateOf(initialMedicine?.minStockAlert?.toString() ?: "5") }
-    var category by remember { mutableStateOf(initialMedicine?.category ?: "أدوية عامة") }
-    var location by remember { mutableStateOf(initialMedicine?.location ?: "رف A-1") }
-    var expiryDaysAhead by remember { mutableStateOf("365") } // أيام متبقية للصلاحية
+    var buyPriceText by remember { mutableStateOf(if (initialMedicine != null && initialMedicine.buyPrice > 0.0) initialMedicine.buyPrice.toString() else "") }
+    var sellPriceText by remember { mutableStateOf(if (initialMedicine != null && initialMedicine.sellPrice > 0.0) initialMedicine.sellPrice.toString() else "") }
+    var quantityText by remember { mutableStateOf(if (initialMedicine != null && initialMedicine.quantity > 0) initialMedicine.quantity.toString() else "") }
+    var minStockText by remember { mutableStateOf(if (initialMedicine != null && initialMedicine.minStockAlert > 0) initialMedicine.minStockAlert.toString() else "") }
+    var category by remember { mutableStateOf(initialMedicine?.category?.ifBlank { "أدوية عامة" } ?: "أدوية عامة") }
+    var location by remember { mutableStateOf(initialMedicine?.location ?: "") }
+    var expiryDaysAhead by remember { mutableStateOf("") } // يترك فارغاً افتراضياً
+
+    val systemCategories = remember {
+        listOf(
+            "أدوية عامة",
+            "مسكنات وخافض حرارة",
+            "مضادات حيوية",
+            "أدوية المعدة والجهاز الهضمي",
+            "مكملات غذائية وفيتامينات",
+            "حساسية ومضادات الهيستامين",
+            "أدوية القلب والضغط",
+            "أدوية السكري",
+            "أدوية العيون والأنف والأذن",
+            "أدوية جلدية وتجميلية"
+        )
+    }
+    var categoryExpanded by remember { mutableStateOf(false) }
 
     val isEditing = initialMedicine != null
 
@@ -1379,7 +1653,7 @@ fun AddEditMedicineDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("اسم الدواء (مثال: Panadol 500mg)") },
+                    label = { Text("اسم الدواء") },
                     singleLine = true,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1459,19 +1733,51 @@ fun AddEditMedicineDialog(
                     )
                 }
 
-                // التصنيف ومكان الرف
-                OutlinedTextField(
-                    value = category,
-                    onValueChange = { category = it },
-                    label = { Text("التصنيف (مثال: مسكنات، مضادات...)") },
-                    singleLine = true,
+                // التصنيف كقائمة منسدلة
+                ExposedDropdownMenuBox(
+                    expanded = categoryExpanded,
+                    onExpandedChange = { categoryExpanded = !categoryExpanded },
                     modifier = Modifier.fillMaxWidth()
-                )
+                ) {
+                    OutlinedTextField(
+                        value = category,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("التصنيف") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryExpanded) },
+                        colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                        modifier = Modifier
+                            .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                            .fillMaxWidth()
+                            .testTag("medicine_category_dropdown")
+                    )
+                    ExposedDropdownMenu(
+                        expanded = categoryExpanded,
+                        onDismissRequest = { categoryExpanded = false }
+                    ) {
+                        systemCategories.forEach { cat ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = cat,
+                                        fontWeight = if (cat == category) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                },
+                                onClick = {
+                                    category = cat
+                                    categoryExpanded = false
+                                },
+                                contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
+                            )
+                        }
+                    }
+                }
 
+                // مكان التخزين
                 OutlinedTextField(
                     value = location,
                     onValueChange = { location = it },
-                    label = { Text("مكان التخزين (مثال: رف B-2)") },
+                    label = { Text("مكان التخزين") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1480,7 +1786,7 @@ fun AddEditMedicineDialog(
                 OutlinedTextField(
                     value = expiryDaysAhead,
                     onValueChange = { expiryDaysAhead = it },
-                    label = { Text("الصلاحية بعد كم يوم؟ (مثال: 365 = سنة)") },
+                    label = { Text("الصلاحية بعد كم يوم؟") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -1490,35 +1796,61 @@ fun AddEditMedicineDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    val buyPrice = buyPriceText.toDoubleOrNull() ?: 10.0
-                    val sellPrice = sellPriceText.toDoubleOrNull() ?: 15.0
-                    val quantity = quantityText.toIntOrNull() ?: 1
-                    val minStock = minStockText.toIntOrNull() ?: 5
-                    val days = expiryDaysAhead.toLongOrNull() ?: 365L
-                    val expiryTimestamp = System.currentTimeMillis() + (days * 24L * 60 * 60 * 1000)
+                    val buyPrice = if (initialMedicine != null && buyPriceText.isBlank()) {
+                        initialMedicine.buyPrice
+                    } else {
+                        buyPriceText.toDoubleOrNull() ?: 0.0
+                    }
+
+                    val sellPrice = if (initialMedicine != null && sellPriceText.isBlank()) {
+                        initialMedicine.sellPrice
+                    } else {
+                        sellPriceText.toDoubleOrNull() ?: 0.0
+                    }
+
+                    val quantity = if (initialMedicine != null && quantityText.isBlank()) {
+                        initialMedicine.quantity
+                    } else {
+                        quantityText.toIntOrNull() ?: 0
+                    }
+
+                    val minStock = if (initialMedicine != null && minStockText.isBlank()) {
+                        initialMedicine.minStockAlert
+                    } else {
+                        minStockText.toIntOrNull() ?: 0
+                    }
+
+                    val days = expiryDaysAhead.toLongOrNull()
+                    val expiryTimestamp = if (days != null && days > 0L) {
+                        System.currentTimeMillis() + (days * 24L * 60 * 60 * 1000)
+                    } else if (initialMedicine != null && expiryDaysAhead.isBlank()) {
+                        initialMedicine.expiryDate
+                    } else {
+                        0L
+                    }
 
                     val newOrUpdated = if (initialMedicine != null) {
                         initialMedicine.copy(
-                            name = name.ifBlank { "دواء بدون اسم" },
-                            barcode = barcode.ifBlank { System.currentTimeMillis().toString() },
+                            name = name.trim(),
+                            barcode = barcode.trim(),
                             buyPrice = buyPrice,
                             sellPrice = sellPrice,
                             quantity = quantity,
                             minStockAlert = minStock,
-                            category = category,
-                            location = location,
+                            category = category.trim().ifBlank { initialMedicine.category.ifBlank { "أدوية عامة" } },
+                            location = if (location.isBlank()) initialMedicine.location else location.trim(),
                             expiryDate = expiryTimestamp
                         )
                     } else {
                         MedicineEntity(
-                            name = name.ifBlank { "دواء بدون اسم" },
-                            barcode = barcode.ifBlank { System.currentTimeMillis().toString() },
+                            name = name.trim(),
+                            barcode = barcode.trim(),
                             buyPrice = buyPrice,
                             sellPrice = sellPrice,
                             quantity = quantity,
                             minStockAlert = minStock,
-                            category = category,
-                            location = location,
+                            category = category.trim().ifBlank { "أدوية عامة" },
+                            location = location.trim(),
                             expiryDate = expiryTimestamp
                         )
                     }
@@ -1537,3 +1869,415 @@ fun AddEditMedicineDialog(
         }
     )
 }
+
+/**
+ * نافذة عرض تفاصيل كل دفعة للدواء (الكمية وسعرها)
+ */
+@Composable
+fun MedicineBatchDetailsDialog(
+    medicine: MedicineEntity,
+    onDismiss: () -> Unit
+) {
+    val batches = remember(medicine.batchesJson, medicine.quantity) { medicine.getBatches() }
+    val dateFormat = remember { SimpleDateFormat("yyyy/MM/dd", Locale.US) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Inventory2,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = "تفاصيل دفعات الدواء",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+                    Text(
+                        text = medicine.name,
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // ملخص إجمالي المخزون
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("إجمالي الكمية بالمخزون", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("${medicine.quantity} علبة", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = MaterialTheme.colorScheme.primary)
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                        ) {
+                            Text(
+                                text = "عدد الدفعات: ${batches.size}",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                }
+
+                if (batches.isEmpty()) {
+                    Text(
+                        text = "لا توجد دفعات مخزون مسجلة حالياً.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(vertical = 12.dp)
+                    )
+                } else {
+                    batches.forEach { batch ->
+                        Card(
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = MaterialTheme.colorScheme.primaryContainer
+                                    ) {
+                                        Text(
+                                            text = "دفعة ${batch.batchNumber}",
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.sp,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                        )
+                                    }
+                                    Text(
+                                        text = "${batch.quantity} علبة",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "سعر البيع: ${batch.sellPrice} ل.س",
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 13.sp
+                                    )
+                                    if (batch.buyPrice > 0.0) {
+                                        Text(
+                                            text = "سعر الشراء: ${batch.buyPrice} ل.س",
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+
+                                if (batch.dateAdded > 0L) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "تاريخ الإضافة: ${dateFormat.format(Date(batch.dateAdded))}",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("إغلاق")
+            }
+        }
+    )
+}
+
+/**
+ * نافذة عرض تفاصيل الفاتورة وقائمة الأدوية المباعة فيها
+ * (الاسم، الكمية، السعر)
+ */
+@Composable
+fun InvoiceDetailsDialog(
+    invoice: InvoiceSummary,
+    onDismiss: () -> Unit
+) {
+    val dateFormat = remember { SimpleDateFormat("yyyy/MM/dd hh:mm a", Locale.getDefault()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.ReceiptLong,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = "تفاصيل الفاتورة",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+                    Text(
+                        text = "${invoice.invoiceId} • ${dateFormat.format(Date(invoice.timestamp))}",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // ملخص مالي للفاتورة
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "إجمالي الفاتورة",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "${String.format(Locale.US, "%.2f", invoice.totalAmount)} ل.س",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 20.sp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                text = "الأدوية: ${invoice.itemsCount} أصناف",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "إجمالي القطع: ${invoice.totalUnitsSold} قطعة",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+
+                Text(
+                    text = "الأدوية المباعة في الفاتورة:",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+
+                invoice.items.forEach { item ->
+                    Card(
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = item.medicineName,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "الكمية: ${item.quantitySold} علبة × ${item.unitSellPrice} ل.س",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Text(
+                                text = "${String.format(Locale.US, "%.2f", item.totalSellPrice)} ل.س",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) {
+                Text("إغلاق")
+            }
+        }
+    )
+}
+
+/**
+ * نافذة إعدادات الصيدلية وتخصيص التنبيهات
+ * (تخصيص مهلة انتهاء الصلاحية)
+ */
+@Composable
+fun SettingsDialog(
+    currentExpiryDays: Int,
+    onSaveExpiryDays: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var daysText by remember { mutableStateOf(currentExpiryDays.toString()) }
+    val presetOptions = listOf(15, 30, 45, 60, 90)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = "إعدادات التنبيهات",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "مدة تنبيه اقتراب انتهاء الصلاحية",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+                Text(
+                    text = "حدد عدد الأيام المتبقية قبل تاريخ الانتهاء ليظهر تنبيه 'الدواء على وشك انتهاء الصلاحية' (الافتراضي: 30 يوماً):",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                OutlinedTextField(
+                    value = daysText,
+                    onValueChange = { input -> daysText = input.filter { it.isDigit() } },
+                    label = { Text("عدد الأيام") },
+                    suffix = { Text("يوم") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("expiry_alert_days_input")
+                )
+
+                Text(
+                    text = "خيارات سريعة:",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    presetOptions.forEach { days ->
+                        FilterChip(
+                            selected = daysText == days.toString(),
+                            onClick = { daysText = days.toString() },
+                            label = { Text("$days يوم", fontSize = 11.sp) }
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val days = daysText.toIntOrNull() ?: 30
+                    onSaveExpiryDays(days)
+                    onDismiss()
+                }
+            ) {
+                Text("حفظ")
+            }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) {
+                Text("إلغاء")
+            }
+        }
+    )
+}
+

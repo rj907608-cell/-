@@ -40,7 +40,7 @@ class PharmacyRepository(private val dao: PharmacyDao) {
         dao.getMedicineById(id)
     }
 
-    fun getExpiringSoonMedicines(daysAhead: Int = 90): Flow<List<MedicineEntity>> {
+    fun getExpiringSoonMedicines(daysAhead: Int = 30): Flow<List<MedicineEntity>> {
         val targetTimestamp = System.currentTimeMillis() + (daysAhead.toLong() * 24 * 60 * 60 * 1000)
         return dao.getExpiringSoonMedicines(targetTimestamp)
     }
@@ -53,6 +53,99 @@ class PharmacyRepository(private val dao: PharmacyDao) {
         dao.insertMedicine(medicine)
     }
 
+    /**
+     * إضافة دواء جديد أو تراكُم كميته ودفوعاته إن كان مسجلاً مسبقاً في المخزون
+     */
+    suspend fun addOrAccumulateMedicine(newMed: MedicineEntity): Pair<MedicineEntity, Boolean> = withContext(Dispatchers.IO) {
+        // التحقق أولاً برقم الباركود إن كان غير فارغ
+        var existing: MedicineEntity? = if (newMed.barcode.isNotBlank()) {
+            dao.getMedicineByBarcode(newMed.barcode.trim())
+        } else null
+
+        // إذا لم يُعثر عليه بالباركود، نبحث بالاسم المطابق إن كان الاسم غير فارغ
+        if (existing == null && newMed.name.isNotBlank()) {
+            existing = dao.getMedicineByName(newMed.name.trim())
+        }
+
+        if (existing != null) {
+            // الدواء موجود مسبقاً في المخزون: تراكُم الكميات
+            val existingBatches = existing.getBatches().toMutableList()
+            val originalQty = existing.quantity
+            val addedQty = newMed.quantity
+            val newTotalQty = originalQty + addedQty
+
+            // التأكد من تسجيل المخزون السابق كدفعة أولى إن لم تكن مسجلة
+            if (existingBatches.isEmpty() && originalQty > 0) {
+                existingBatches.add(
+                    MedicineBatch(
+                        batchNumber = 1,
+                        quantity = originalQty,
+                        buyPrice = existing.buyPrice,
+                        sellPrice = existing.sellPrice,
+                        dateAdded = existing.createdAt
+                    )
+                )
+            }
+
+            // إذا كان السعر الجديد مختلفاً عن السعر القديم، نحتفظ بالكمية والسعر لكل دفعة بشكل منفصل
+            val lastBatch = existingBatches.lastOrNull()
+            val isSamePrice = lastBatch != null &&
+                    lastBatch.sellPrice == newMed.sellPrice &&
+                    lastBatch.buyPrice == newMed.buyPrice
+
+            if (isSamePrice && lastBatch != null) {
+                // السعر مطابق: نزيد كمية نفس الدفعة
+                existingBatches[existingBatches.lastIndex] = lastBatch.copy(
+                    quantity = lastBatch.quantity + addedQty
+                )
+            } else {
+                // السعر مختلف أو دفعة جديدة: ننشئ دفعة منفصلة جديدة
+                val nextBatchNumber = (existingBatches.maxOfOrNull { it.batchNumber } ?: 0) + 1
+                existingBatches.add(
+                    MedicineBatch(
+                        batchNumber = nextBatchNumber,
+                        quantity = addedQty,
+                        buyPrice = newMed.buyPrice,
+                        sellPrice = newMed.sellPrice,
+                        dateAdded = System.currentTimeMillis()
+                    )
+                )
+            }
+
+            val updatedEntity = existing.copy(
+                quantity = newTotalQty,
+                sellPrice = if (newMed.sellPrice > 0) newMed.sellPrice else existing.sellPrice,
+                buyPrice = if (newMed.buyPrice > 0) newMed.buyPrice else existing.buyPrice,
+                category = if (newMed.category.isNotBlank()) newMed.category else existing.category,
+                location = if (newMed.location.isNotBlank()) newMed.location else existing.location,
+                expiryDate = if (newMed.expiryDate > 0L) newMed.expiryDate else existing.expiryDate,
+                batchesJson = BatchConverter.toJson(existingBatches)
+            )
+
+            dao.updateMedicine(updatedEntity)
+            Pair(updatedEntity, true) // تم التراكم
+        } else {
+            // دواء جديد كلياً
+            val initialBatches = if (newMed.quantity > 0) {
+                listOf(
+                    MedicineBatch(
+                        batchNumber = 1,
+                        quantity = newMed.quantity,
+                        buyPrice = newMed.buyPrice,
+                        sellPrice = newMed.sellPrice,
+                        dateAdded = System.currentTimeMillis()
+                    )
+                )
+            } else emptyList()
+
+            val entityToInsert = newMed.copy(
+                batchesJson = BatchConverter.toJson(initialBatches)
+            )
+            val newId = dao.insertMedicine(entityToInsert)
+            Pair(entityToInsert.copy(id = newId), false) // إضافة جديدة
+        }
+    }
+
     suspend fun updateMedicine(medicine: MedicineEntity) = withContext(Dispatchers.IO) {
         dao.updateMedicine(medicine)
     }
@@ -62,13 +155,46 @@ class PharmacyRepository(private val dao: PharmacyDao) {
     }
 
     suspend fun adjustStock(medicineId: Long, delta: Int): Boolean = withContext(Dispatchers.IO) {
+        val medicine = dao.getMedicineById(medicineId) ?: return@withContext false
+        val newQty = medicine.quantity + delta
+        if (newQty < 0) return@withContext false
+
+        val batches = medicine.getBatches().toMutableList()
         if (delta > 0) {
-            dao.addStock(medicineId, delta) > 0
+            if (batches.isNotEmpty()) {
+                val last = batches.last()
+                batches[batches.lastIndex] = last.copy(quantity = last.quantity + delta)
+            } else {
+                batches.add(
+                    MedicineBatch(
+                        batchNumber = 1,
+                        quantity = newQty,
+                        buyPrice = medicine.buyPrice,
+                        sellPrice = medicine.sellPrice
+                    )
+                )
+            }
         } else if (delta < 0) {
-            dao.deductStock(medicineId, -delta) > 0
-        } else {
-            true
+            var toDeduct = -delta
+            for (i in batches.indices) {
+                if (toDeduct <= 0) break
+                val b = batches[i]
+                if (b.quantity <= toDeduct) {
+                    toDeduct -= b.quantity
+                    batches[i] = b.copy(quantity = 0)
+                } else {
+                    batches[i] = b.copy(quantity = b.quantity - toDeduct)
+                    toDeduct = 0
+                }
+            }
         }
+
+        val updated = medicine.copy(
+            quantity = newQty,
+            batchesJson = BatchConverter.toJson(batches)
+        )
+        dao.updateMedicine(updated)
+        true
     }
 
     /**
@@ -80,12 +206,32 @@ class PharmacyRepository(private val dao: PharmacyDao) {
         val salesList = mutableListOf<SaleRecordEntity>()
 
         for (item in items) {
-            // خصم الكمية من المخزون
-            val affectedRows = dao.deductStock(item.medicine.id, item.quantity)
-            if (affectedRows <= 0) {
-                // الكمية غير كافية في المخزون
+            val medicine = dao.getMedicineById(item.medicine.id) ?: return@withContext false
+            if (medicine.quantity < item.quantity) {
                 return@withContext false
             }
+
+            val newQty = medicine.quantity - item.quantity
+            val batches = medicine.getBatches().toMutableList()
+            var toDeduct = item.quantity
+            for (i in batches.indices) {
+                if (toDeduct <= 0) break
+                val b = batches[i]
+                if (b.quantity <= toDeduct) {
+                    toDeduct -= b.quantity
+                    batches[i] = b.copy(quantity = 0)
+                } else {
+                    batches[i] = b.copy(quantity = b.quantity - toDeduct)
+                    toDeduct = 0
+                }
+            }
+
+            dao.updateMedicine(
+                medicine.copy(
+                    quantity = newQty,
+                    batchesJson = BatchConverter.toJson(batches)
+                )
+            )
 
             salesList.add(
                 SaleRecordEntity(
@@ -132,6 +278,43 @@ class PharmacyRepository(private val dao: PharmacyDao) {
         } else {
             false
         }
+    }
+
+    /**
+     * حذف فاتورة كاملة بجميع أدوية البيع المسجلة تحتها واسترجاع الكميات للمخزون
+     */
+    suspend fun deleteInvoice(invoiceId: String): Boolean = withContext(Dispatchers.IO) {
+        val sales = dao.getSalesByInvoiceId(invoiceId)
+        // استرجاع كميات الأدوية المباعة إلى المخزون تلقائياً
+        for (sale in sales) {
+            val med = dao.getMedicineById(sale.medicineId)
+            if (med != null) {
+                val newQty = med.quantity + sale.quantitySold
+                val batches = med.getBatches().toMutableList()
+                if (batches.isNotEmpty()) {
+                    val lastBatch = batches.last()
+                    batches[batches.lastIndex] = lastBatch.copy(quantity = lastBatch.quantity + sale.quantitySold)
+                } else {
+                    batches.add(
+                        MedicineBatch(
+                            batchNumber = 1,
+                            quantity = sale.quantitySold,
+                            buyPrice = sale.unitCostPrice,
+                            sellPrice = sale.unitSellPrice,
+                            dateAdded = System.currentTimeMillis()
+                        )
+                    )
+                }
+                dao.updateMedicine(
+                    med.copy(
+                        quantity = newQty,
+                        batchesJson = BatchConverter.toJson(batches)
+                    )
+                )
+            }
+        }
+        val count = dao.deleteSalesByInvoiceId(invoiceId)
+        count > 0
     }
 
     /**
