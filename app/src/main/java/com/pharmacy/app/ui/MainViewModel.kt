@@ -41,7 +41,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val allMedicines: StateFlow<List<MedicineEntity>> = repository.allMedicines.stateIn(
         scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
+        started = SharingStarted.Eagerly,
         initialValue = emptyList()
     )
 
@@ -55,51 +55,59 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         .stateIn(
             scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
+            started = SharingStarted.Eagerly,
             initialValue = emptyList()
         )
 
     // --- التنبيهات (صلاحية ونواقص) ---
     val lowStockMedicines: StateFlow<List<MedicineEntity>> = repository.lowStockMedicines.stateIn(
         scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
+        started = SharingStarted.Eagerly,
         initialValue = emptyList()
     )
 
     val expiringSoonMedicines: StateFlow<List<MedicineEntity>> = repository.getExpiringSoonMedicines(90).stateIn(
         scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
+        started = SharingStarted.Eagerly,
         initialValue = emptyList()
     )
 
     val expiredMedicines: StateFlow<List<MedicineEntity>> = repository.getExpiredMedicines().stateIn(
         scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
+        started = SharingStarted.Eagerly,
         initialValue = emptyList()
+    )
+
+    val totalAlertsCount: StateFlow<Int> = combine(lowStockMedicines, expiredMedicines) { low, exp ->
+        low.size + exp.size
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = 0
     )
 
     // --- المبيعات والتقارير المالية ---
     val allSales: StateFlow<List<SaleRecordEntity>> = repository.allSales.stateIn(
         scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
+        started = SharingStarted.Eagerly,
         initialValue = emptyList()
     )
 
     val totalRevenue: StateFlow<Double> = repository.totalRevenue.stateIn(
         scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
+        started = SharingStarted.Eagerly,
         initialValue = 0.0
     )
 
     val totalProfit: StateFlow<Double> = repository.totalProfit.stateIn(
         scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
+        started = SharingStarted.Eagerly,
         initialValue = 0.0
     )
 
     val totalItemsSold: StateFlow<Int> = repository.totalItemsSold.stateIn(
         scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
+        started = SharingStarted.Eagerly,
         initialValue = 0
     )
 

@@ -41,8 +41,16 @@ jobs:
             touch .env
           fi
 
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug --stacktrace --no-daemon --no-configuration-cache
+      - name: Build Optimized Release and Debug APKs
+        run: ./gradlew assembleRelease assembleDebug --stacktrace --no-daemon --no-configuration-cache
+
+      - name: Upload Fast Release APK (Recommended)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pharmacy-app-release-optimized
+          path: app/build/outputs/apk/release/*.apk
+          retention-days: 30
 
       - name: Upload Debug APK Artifact
         if: success()

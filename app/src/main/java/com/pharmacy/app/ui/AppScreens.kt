@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -83,7 +85,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -124,7 +128,9 @@ enum class AppTab(val title: String, val icon: ImageVector) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainPharmacyScreen(viewModel: MainViewModel) {
-    var selectedTab by remember { mutableStateOf(AppTab.POS) }
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { AppTab.entries.size })
+    val coroutineScope = rememberCoroutineScope()
+
     var showScannerDialog by remember { mutableStateOf(false) }
     var medicineToEdit by remember { mutableStateOf<MedicineEntity?>(null) }
     var showAddMedicineDialog by remember { mutableStateOf(false) }
@@ -133,12 +139,7 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
     val uiMessage by viewModel.uiMessage.collectAsStateWithLifecycle()
     val pendingBarcode by viewModel.pendingBarcodeForAdd.collectAsStateWithLifecycle()
 
-    val allMedicines by viewModel.allMedicines.collectAsStateWithLifecycle()
-    val lowStockMedicines by viewModel.lowStockMedicines.collectAsStateWithLifecycle()
-    val expiredMedicines by viewModel.expiredMedicines.collectAsStateWithLifecycle()
-    val expiringSoonMedicines by viewModel.expiringSoonMedicines.collectAsStateWithLifecycle()
-
-    val totalAlerts = lowStockMedicines.size + expiredMedicines.size
+    val totalAlerts by viewModel.totalAlertsCount.collectAsStateWithLifecycle()
 
     LaunchedEffect(uiMessage) {
         uiMessage?.let {
@@ -180,7 +181,7 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "نظام محلي متكامل (Offline)",
+                                text = "نظام محلي فائق السرعة (Native 120Hz)",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -211,10 +212,14 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
                 tonalElevation = 8.dp
             ) {
                 AppTab.entries.forEach { tab ->
-                    val isSelected = selectedTab == tab
+                    val isSelected = pagerState.currentPage == tab.ordinal
                     NavigationBarItem(
                         selected = isSelected,
-                        onClick = { selectedTab = tab },
+                        onClick = {
+                            coroutineScope.launch {
+                                pagerState.scrollToPage(tab.ordinal)
+                            }
+                        },
                         icon = {
                             if (tab == AppTab.ALERTS && totalAlerts > 0) {
                                 BadgedBox(badge = { Badge { Text("$totalAlerts") } }) {
@@ -231,7 +236,7 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
             }
         },
         floatingActionButton = {
-            if (selectedTab == AppTab.INVENTORY) {
+            if (pagerState.currentPage == AppTab.INVENTORY.ordinal) {
                 FloatingActionButton(
                     onClick = {
                         medicineToEdit = null
@@ -247,12 +252,15 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
-        Box(
+        HorizontalPager(
+            state = pagerState,
+            userScrollEnabled = false,
+            beyondViewportPageCount = 3,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-        ) {
-            when (selectedTab) {
+        ) { page ->
+            when (AppTab.entries[page]) {
                 AppTab.POS -> PosScreen(
                     viewModel = viewModel,
                     onOpenScanner = { showScannerDialog = true }
@@ -277,7 +285,7 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
 
     // نافذة ماسح الباركود
     if (showScannerDialog) {
-        val sampleBarcodes = allMedicines.take(4).map { it.name to it.barcode }
+        val sampleBarcodes = viewModel.allMedicines.value.take(4).map { it.name to it.barcode }
         BarcodeScannerDialog(
             sampleBarcodes = sampleBarcodes,
             onBarcodeScanned = { barcode ->
@@ -631,11 +639,14 @@ fun InventoryScreen(
 
     val categories = listOf("الكل", "مسكنات وخافض حرارة", "مضادات حيوية", "أدوية المعدة والجهاز الهضمي", "مكملات غذائية وفيتامينات", "حساسية ومضادات الهيستامين")
 
-    val filteredList = if (selectedCategory == "الكل") {
-        medicines
-    } else {
-        medicines.filter { it.category == selectedCategory }
+    val filteredList = remember(medicines, selectedCategory) {
+        if (selectedCategory == "الكل") {
+            medicines
+        } else {
+            medicines.filter { it.category == selectedCategory }
+        }
     }
+    val totalPieces = remember(filteredList) { filteredList.sumOf { it.quantity } }
 
     Column(
         modifier = Modifier
@@ -694,7 +705,7 @@ fun InventoryScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
-                text = "إجمالي القطع: ${filteredList.sumOf { it.quantity }}",
+                text = "إجمالي القطع: $totalPieces",
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.primary
