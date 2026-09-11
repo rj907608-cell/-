@@ -82,10 +82,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val expiryAlertDays: StateFlow<Int> = _expiryAlertDays.asStateFlow()
 
     fun updateExpiryAlertDays(days: Int) {
-        val validDays = days.coerceAtLeast(1)
+        val validDays = days.coerceIn(1, 180)
         _expiryAlertDays.value = validDays
         prefs.edit().putInt("pref_expiry_alert_days", validDays).apply()
         _uiMessage.value = "تم ضبط مدة تنبيه انتهاء الصلاحية على $validDays يوماً"
+    }
+
+    // الحد الأدنى الافتراضي لنقص المخزون في حال لم يتم إدخاله يدوياً
+    private val _defaultMinStockAlert = MutableStateFlow(prefs.getInt("pref_default_min_stock", 5))
+    val defaultMinStockAlert: StateFlow<Int> = _defaultMinStockAlert.asStateFlow()
+
+    fun updateDefaultMinStockAlert(minStock: Int) {
+        val valid = minStock.coerceIn(1, 50)
+        _defaultMinStockAlert.value = valid
+        prefs.edit().putInt("pref_default_min_stock", valid).apply()
+        _uiMessage.value = "تم ضبط الحد الأدنى الافتراضي لنقص الكمية على $valid علب"
     }
 
     // استرجاع وحفظ معرفات التنبيهات التي تم تأكيد توريدها في SharedPreferences
@@ -254,7 +265,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             currentList.add(CartItem(medicine = medicine, quantity = qty))
         }
         _cart.value = currentList
-        _uiMessage.value = "تمت إضافة ${medicine.name} للسلة"
+        _uiMessage.value = "تمت إضافة ${medicine.name} إلى السلة بنجاح"
     }
 
     fun updateCartQuantity(medicineId: Long, newQty: Int) {
@@ -291,7 +302,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val success = repository.checkoutCart(items)
             if (success) {
                 _cart.value = emptyList()
-                _uiMessage.value = "تمت عملية البيع بنجاح وخصم الكميات من المخزون!"
+                _uiMessage.value = "تم إتمام عملية البيع وحفظ الفاتورة بنجاح!"
             } else {
                 _uiMessage.value = "فشلت عملية البيع، يرجى مراجعة كميات المخزون المتوفرة"
             }
@@ -348,7 +359,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             repository.deleteMedicine(medicine)
             // إزالته أيضاً من السلة إذا وجد
             removeFromCart(medicine.id)
-            _uiMessage.value = "تم حذف الدواء من المخزون: ${medicine.name}"
+            _uiMessage.value = "تم حذف الدواء بنجاح من الصيدلية: ${medicine.name}"
         }
     }
 
@@ -356,7 +367,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val success = repository.deleteInvoice(invoiceId)
             if (success) {
-                _uiMessage.value = "تم حذف الفاتورة $invoiceId بنجاح"
+                _uiMessage.value = "تم حذف الفاتورة $invoiceId واسترجاع كميات المخزون بنجاح"
             } else {
                 _uiMessage.value = "تعذر حذف الفاتورة $invoiceId"
             }

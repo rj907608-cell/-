@@ -147,6 +147,9 @@ interface PharmacyDao {
     @Query("SELECT * FROM sales WHERE invoiceId = :invoiceId")
     suspend fun getSalesByInvoiceId(invoiceId: String): List<SaleRecordEntity>
 
+    @Query("SELECT invoiceId FROM sales")
+    suspend fun getAllInvoiceIds(): List<String>
+
     @Query("DELETE FROM sales WHERE invoiceId = :invoiceId")
     suspend fun deleteSalesByInvoiceId(invoiceId: String): Int
 

@@ -7,13 +7,16 @@ import java.util.UUID
 
 /**
  * عنصر في سلة المبيعات لنقطة البيع (POS Cart Item)
+ * يتم حساب إجمالي الفاتورة بضرب الكمية في سعر البيع دائماً
  */
 data class CartItem(
     val medicine: MedicineEntity,
     val quantity: Int
 ) {
-    val subtotal: Double get() = medicine.sellPrice * quantity
-    val profit: Double get() = (medicine.sellPrice - medicine.buyPrice) * quantity
+    // التأكيد التام على أن الحساب يتم دائماً بضرب سعر البيع
+    val effectiveSellPrice: Double get() = if (medicine.sellPrice > 0.0) medicine.sellPrice else medicine.buyPrice
+    val subtotal: Double get() = effectiveSellPrice * quantity
+    val profit: Double get() = (effectiveSellPrice - medicine.buyPrice) * quantity
 }
 
 /**
@@ -198,11 +201,28 @@ class PharmacyRepository(private val dao: PharmacyDao) {
     }
 
     /**
+     * توليد رقم فاتورة متسلسل ومنتظم (INV-0001, INV-0002, ...)
+     */
+    suspend fun generateSequentialInvoiceId(): String = withContext(Dispatchers.IO) {
+        val existingIds = dao.getAllInvoiceIds()
+        var maxNumber = 0
+        for (id in existingIds) {
+            val num = id.filter { it.isDigit() }.toIntOrNull()
+            if (num != null && num > maxNumber) {
+                maxNumber = num
+            }
+        }
+        val nextSeq = maxNumber + 1
+        String.format(java.util.Locale.US, "INV-%04d", nextSeq)
+    }
+
+    /**
      * إتمام عملية بيع سلة كاملة وتحديث المخزون وتسجيل القيود المالية
+     * الحساب يتم دائماً بضرب الكمية في سعر البيع
      */
     suspend fun checkoutCart(items: List<CartItem>): Boolean = withContext(Dispatchers.IO) {
         if (items.isEmpty()) return@withContext false
-        val invoiceId = "INV-${System.currentTimeMillis().toString().takeLast(6)}"
+        val invoiceId = generateSequentialInvoiceId()
         val salesList = mutableListOf<SaleRecordEntity>()
 
         for (item in items) {
@@ -233,6 +253,7 @@ class PharmacyRepository(private val dao: PharmacyDao) {
                 )
             )
 
+            val unitSell = item.effectiveSellPrice
             salesList.add(
                 SaleRecordEntity(
                     invoiceId = invoiceId,
@@ -241,8 +262,8 @@ class PharmacyRepository(private val dao: PharmacyDao) {
                     barcode = item.medicine.barcode,
                     quantitySold = item.quantity,
                     unitCostPrice = item.medicine.buyPrice,
-                    unitSellPrice = item.medicine.sellPrice,
-                    totalSellPrice = item.subtotal,
+                    unitSellPrice = unitSell,
+                    totalSellPrice = item.subtotal, // الكمية × سعر البيع
                     totalProfit = item.profit,
                     timestamp = System.currentTimeMillis()
                 )
@@ -254,23 +275,25 @@ class PharmacyRepository(private val dao: PharmacyDao) {
     }
 
     /**
-     * بيع سريع لدواء مفرد
+     * بيع سريع لدواء مفرد بحساب ضرب سعر البيع
      */
     suspend fun quickSell(medicine: MedicineEntity, quantity: Int = 1): Boolean = withContext(Dispatchers.IO) {
         if (medicine.quantity < quantity) return@withContext false
 
         val affected = dao.deductStock(medicine.id, quantity)
         if (affected > 0) {
+            val invoiceId = generateSequentialInvoiceId()
+            val unitSell = if (medicine.sellPrice > 0.0) medicine.sellPrice else medicine.buyPrice
             val sale = SaleRecordEntity(
-                invoiceId = "INV-${System.currentTimeMillis().toString().takeLast(6)}",
+                invoiceId = invoiceId,
                 medicineId = medicine.id,
                 medicineName = medicine.name,
                 barcode = medicine.barcode,
                 quantitySold = quantity,
                 unitCostPrice = medicine.buyPrice,
-                unitSellPrice = medicine.sellPrice,
-                totalSellPrice = medicine.sellPrice * quantity,
-                totalProfit = (medicine.sellPrice - medicine.buyPrice) * quantity,
+                unitSellPrice = unitSell,
+                totalSellPrice = unitSell * quantity, // الكمية × سعر البيع
+                totalProfit = (unitSell - medicine.buyPrice) * quantity,
                 timestamp = System.currentTimeMillis()
             )
             dao.insertSale(sale)

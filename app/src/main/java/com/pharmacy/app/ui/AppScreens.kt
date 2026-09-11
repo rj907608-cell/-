@@ -83,6 +83,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -95,12 +97,16 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -157,10 +163,26 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
     val pendingBarcode by viewModel.pendingBarcodeForAdd.collectAsStateWithLifecycle()
 
     val totalAlerts by viewModel.totalAlertsCount.collectAsStateWithLifecycle()
+    val defaultMinStockAlert by viewModel.defaultMinStockAlert.collectAsStateWithLifecycle()
+
+    var activeMessageJob by remember { mutableStateOf<Job?>(null) }
 
     LaunchedEffect(uiMessage) {
-        uiMessage?.let {
-            snackbarHostState.showSnackbar(it)
+        val msg = uiMessage
+        if (msg != null) {
+            activeMessageJob?.cancel()
+            activeMessageJob = coroutineScope.launch {
+                val showJob = launch {
+                    snackbarHostState.showSnackbar(
+                        message = msg,
+                        duration = SnackbarDuration.Indefinite
+                    )
+                }
+                // تظهر وتختفي بسرعة فائقة (1.2 ثانية) بناءً على طلب المستخدم
+                delay(1200L)
+                showJob.cancel()
+                snackbarHostState.currentSnackbarData?.dismiss()
+            }
             viewModel.clearUiMessage()
         }
     }
@@ -285,7 +307,51 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
                 }
             }
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        snackbarHost = {
+            SnackbarHost(snackbarHostState) { data ->
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color(0xFFD4EDDA), // لون أخضر فاتح راقٍ ومريح
+                        contentColor = Color(0xFF155724)    // نص أخضر داكن واضح
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                        .fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFF28A745).copy(alpha = 0.2f),
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = Color(0xFF28A745),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = data.visuals.message,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp,
+                            color = Color(0xFF155724),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+        }
     ) { innerPadding ->
         HorizontalPager(
             state = pagerState,
@@ -321,7 +387,11 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
     if (showSettingsDialog) {
         SettingsDialog(
             currentExpiryDays = expiryAlertDays,
-            onSaveExpiryDays = { days -> viewModel.updateExpiryAlertDays(days) },
+            currentDefaultMinStock = defaultMinStockAlert,
+            onSaveSettings = { days, minStock ->
+                viewModel.updateExpiryAlertDays(days)
+                viewModel.updateDefaultMinStockAlert(minStock)
+            },
             onDismiss = { showSettingsDialog = false }
         )
     }
@@ -341,6 +411,7 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
         AddEditMedicineDialog(
             initialMedicine = medicineToEdit,
             presetBarcode = pendingBarcode ?: "",
+            defaultMinStockAlert = defaultMinStockAlert,
             onSave = { savedMed ->
                 if (medicineToEdit != null) {
                     viewModel.updateMedicine(savedMed)
@@ -590,12 +661,12 @@ fun PosScreen(
                                     fontSize = 14.sp
                                 )
                                 Text(
-                                    text = "${item.medicine.sellPrice} ل.س للقطعة | الباركود: ${item.medicine.barcode}",
+                                    text = "سعر البيع: ${item.effectiveSellPrice} ل.س | الباركود: ${item.medicine.barcode}",
                                     fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Text(
-                                    text = "الإجمالي: ${String.format(Locale.US, "%.2f", item.subtotal)} ل.س",
+                                    text = "حساب الفاتورة: ${item.quantity} × ${item.effectiveSellPrice} = ${String.format(Locale.US, "%.2f", item.subtotal)} ل.س",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.primary
@@ -1602,6 +1673,7 @@ fun ReportMetricCard(
 fun AddEditMedicineDialog(
     initialMedicine: MedicineEntity?,
     presetBarcode: String,
+    defaultMinStockAlert: Int = 5,
     onSave: (MedicineEntity) -> Unit,
     onDismiss: () -> Unit,
     onScanBarcodeRequested: () -> Unit
@@ -1611,7 +1683,15 @@ fun AddEditMedicineDialog(
     var buyPriceText by remember { mutableStateOf(if (initialMedicine != null && initialMedicine.buyPrice > 0.0) initialMedicine.buyPrice.toString() else "") }
     var sellPriceText by remember { mutableStateOf(if (initialMedicine != null && initialMedicine.sellPrice > 0.0) initialMedicine.sellPrice.toString() else "") }
     var quantityText by remember { mutableStateOf(if (initialMedicine != null && initialMedicine.quantity > 0) initialMedicine.quantity.toString() else "") }
-    var minStockText by remember { mutableStateOf(if (initialMedicine != null && initialMedicine.minStockAlert > 0) initialMedicine.minStockAlert.toString() else "") }
+    var minStockText by remember {
+        mutableStateOf(
+            if (initialMedicine != null) {
+                if (initialMedicine.minStockAlert > 0) initialMedicine.minStockAlert.toString() else ""
+            } else {
+                "" // يترك فارغاً ليأخذ القيمة الافتراضية المحددة في الإعدادات
+            }
+        )
+    }
     var category by remember { mutableStateOf(initialMedicine?.category?.ifBlank { "أدوية عامة" } ?: "أدوية عامة") }
     var location by remember { mutableStateOf(initialMedicine?.location ?: "") }
     var expiryDaysAhead by remember { mutableStateOf("") } // يترك فارغاً افتراضياً
@@ -1726,7 +1806,8 @@ fun AddEditMedicineDialog(
                     OutlinedTextField(
                         value = minStockText,
                         onValueChange = { minStockText = it },
-                        label = { Text("حد التنبيه") },
+                        label = { Text("حد التنبيه (الافتراضي: $defaultMinStockAlert)") },
+                        placeholder = { Text("$defaultMinStockAlert") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
                         modifier = Modifier.weight(1f)
@@ -1805,7 +1886,8 @@ fun AddEditMedicineDialog(
                     val sellPrice = if (initialMedicine != null && sellPriceText.isBlank()) {
                         initialMedicine.sellPrice
                     } else {
-                        sellPriceText.toDoubleOrNull() ?: 0.0
+                        val entered = sellPriceText.toDoubleOrNull() ?: 0.0
+                        if (entered <= 0.0 && buyPrice > 0.0) buyPrice else entered
                     }
 
                     val quantity = if (initialMedicine != null && quantityText.isBlank()) {
@@ -1814,10 +1896,13 @@ fun AddEditMedicineDialog(
                         quantityText.toIntOrNull() ?: 0
                     }
 
+                    // إذا لم يدخل المستخدم حداً أدنى يدوياً، يتم اعتماد القيمة الافتراضية المحددة بشريط التمرير في الإعدادات
                     val minStock = if (initialMedicine != null && minStockText.isBlank()) {
                         initialMedicine.minStockAlert
+                    } else if (minStockText.isBlank()) {
+                        defaultMinStockAlert
                     } else {
-                        minStockText.toIntOrNull() ?: 0
+                        minStockText.toIntOrNull() ?: defaultMinStockAlert
                     }
 
                     val days = expiryDaysAhead.toLongOrNull()
@@ -2149,7 +2234,7 @@ fun InvoiceDetailsDialog(
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = "الكمية: ${item.quantitySold} علبة × ${item.unitSellPrice} ل.س",
+                                    text = "الكمية: ${item.quantitySold} علبة × سعر البيع: ${item.unitSellPrice} ل.س",
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -2174,17 +2259,19 @@ fun InvoiceDetailsDialog(
 }
 
 /**
- * نافذة إعدادات الصيدلية وتخصيص التنبيهات
- * (تخصيص مهلة انتهاء الصلاحية)
+ * نافذة إعدادات الصيدلية وتخصيص التنبيهات الافتراضية
+ * تتيح تحديد القيمة الافتراضية للحد الأدنى للتنبيه بنفاذ الكمية (شريط تمرير)
+ * وتنبيه اقتراب انتهاء الصلاحية (شريط تمرير)
  */
 @Composable
 fun SettingsDialog(
     currentExpiryDays: Int,
-    onSaveExpiryDays: (Int) -> Unit,
+    currentDefaultMinStock: Int,
+    onSaveSettings: (expiryDays: Int, defaultMinStock: Int) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var daysText by remember { mutableStateOf(currentExpiryDays.toString()) }
-    val presetOptions = listOf(15, 30, 45, 60, 90)
+    var expiryDaysSlider by remember { mutableFloatStateOf(currentExpiryDays.coerceIn(5, 180).toFloat()) }
+    var minStockSlider by remember { mutableFloatStateOf(currentDefaultMinStock.coerceIn(1, 50).toFloat()) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -2193,7 +2280,7 @@ fun SettingsDialog(
                 Surface(
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier.size(36.dp)
+                    modifier = Modifier.size(38.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
@@ -2206,7 +2293,7 @@ fun SettingsDialog(
                 }
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
-                    text = "إعدادات التنبيهات",
+                    text = "إعدادات التنبيهات الافتراضية",
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp
                 )
@@ -2217,47 +2304,125 @@ fun SettingsDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Text(
-                    text = "مدة تنبيه اقتراب انتهاء الصلاحية",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
-                )
-                Text(
-                    text = "حدد عدد الأيام المتبقية قبل تاريخ الانتهاء ليظهر تنبيه 'الدواء على وشك انتهاء الصلاحية' (الافتراضي: 30 يوماً):",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                OutlinedTextField(
-                    value = daysText,
-                    onValueChange = { input -> daysText = input.filter { it.isDigit() } },
-                    label = { Text("عدد الأيام") },
-                    suffix = { Text("يوم") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("expiry_alert_days_input")
-                )
-
-                Text(
-                    text = "خيارات سريعة:",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                // 1. شريط تمرير لتحديد الحد الأدنى الافتراضي للتنبيه بنفاذ الكمية
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    presetOptions.forEach { days ->
-                        FilterChip(
-                            selected = daysText == days.toString(),
-                            onClick = { daysText = days.toString() },
-                            label = { Text("$days يوم", fontSize = 11.sp) }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "الحد الأدنى الافتراضي لنقص الكمية",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer
+                            ) {
+                                Text(
+                                    text = "${minStockSlider.roundToInt()} علب",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = "القيمة الافتراضية للحد الأدنى لتنبيه نفاذ الكمية عند إضافة دواء جديد إذا لم تدخلها يدوياً:",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        Slider(
+                            value = minStockSlider,
+                            onValueChange = { minStockSlider = it },
+                            valueRange = 1f..50f,
+                            steps = 48,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("min_stock_alert_slider")
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("1 علبة", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("25 علبة", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("50 علبة", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+
+                // 2. شريط تمرير لتحديد مهلة تنبيه اقتراب انتهاء الصلاحية
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "تنبيه قبل انتهاء الصلاحية",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer
+                            ) {
+                                Text(
+                                    text = "${expiryDaysSlider.roundToInt()} يوماً",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = "عدد الأيام المتبقية على انتهاء الصلاحية ليظهر تنبيه 'اقتراب انتهاء الصلاحية':",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Slider(
+                            value = expiryDaysSlider,
+                            onValueChange = { expiryDaysSlider = it },
+                            valueRange = 5f..180f,
+                            steps = 34,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("expiry_alert_slider")
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("5 أيام", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("90 يوماً", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("180 يوماً", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
             }
@@ -2265,12 +2430,11 @@ fun SettingsDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    val days = daysText.toIntOrNull() ?: 30
-                    onSaveExpiryDays(days)
+                    onSaveSettings(expiryDaysSlider.roundToInt(), minStockSlider.roundToInt())
                     onDismiss()
                 }
             ) {
-                Text("حفظ")
+                Text("حفظ الإعدادات")
             }
         },
         dismissButton = {
