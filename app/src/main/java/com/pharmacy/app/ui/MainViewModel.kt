@@ -1,6 +1,7 @@
 package com.pharmacy.app.ui
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.pharmacy.app.data.CartItem
@@ -26,6 +27,17 @@ import kotlinx.coroutines.launch
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: PharmacyRepository
+
+    // حفظ واسترجاع اختيار الثيم (الوضع الداكن / الفاتح) محلياً
+    private val prefs = application.getSharedPreferences("pharmacy_app_prefs", Context.MODE_PRIVATE)
+    private val _isDarkTheme = MutableStateFlow(prefs.getBoolean("pref_dark_theme", false))
+    val isDarkTheme: StateFlow<Boolean> = _isDarkTheme.asStateFlow()
+
+    fun toggleTheme() {
+        val nextMode = !_isDarkTheme.value
+        _isDarkTheme.value = nextMode
+        prefs.edit().putBoolean("pref_dark_theme", nextMode).apply()
+    }
 
     init {
         val database = PharmacyDatabase.getDatabase(application)

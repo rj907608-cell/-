@@ -277,59 +277,12 @@ fun BarcodeScannerDialog(
                     }
                 }
 
-                // الجزء السفلي: تجربة سريعة + إدخال يدوي
+                // الجزء السفلي: إدخال يدوي برقم الباركود
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(12.dp)
                 ) {
-                    if (sampleBarcodes.isNotEmpty()) {
-                        Text(
-                            text = "باركود تجريبي للاختبار السريع:",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            items(sampleBarcodes) { (name, code) ->
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = MaterialTheme.colorScheme.secondaryContainer,
-                                    modifier = Modifier
-                                        .clickable {
-                                            onBarcodeScanned(code)
-                                            onDismiss()
-                                        }
-                                        .testTag("sample_barcode_$code")
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.QrCode,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(16.dp),
-                                            tint = MaterialTheme.colorScheme.onSecondaryContainer
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = "$name ($code)",
-                                            fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.onSecondaryContainer
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(10.dp))
-                    }
-
-                    // إدخال يدوي برقم الباركود
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically

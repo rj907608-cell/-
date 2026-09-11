@@ -36,10 +36,12 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.LocalPharmacy
 import androidx.compose.material.icons.filled.MonetizationOn
 import androidx.compose.material.icons.filled.NotificationsActive
@@ -174,21 +176,27 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
                             }
                         }
                         Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "إدارة الصيدلية",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "نظام محلي فائق السرعة (Native 120Hz)",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                        Text(
+                            text = "إدارة الصيدلية",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 },
                 actions = {
+                    val isDarkTheme by viewModel.isDarkTheme.collectAsStateWithLifecycle()
+                    // زر التبديل بين الوضع الداكن والفاتح
+                    IconButton(
+                        onClick = { viewModel.toggleTheme() },
+                        modifier = Modifier.testTag("toggle_theme_btn")
+                    ) {
+                        Icon(
+                            imageVector = if (isDarkTheme) Icons.Default.LightMode else Icons.Default.DarkMode,
+                            contentDescription = if (isDarkTheme) "الوضع النهاري" else "الوضع الليلي",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
                     // زر تشغيل ماسح الباركود
                     IconButton(
                         onClick = { showScannerDialog = true },
@@ -285,9 +293,7 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
 
     // نافذة ماسح الباركود
     if (showScannerDialog) {
-        val sampleBarcodes = viewModel.allMedicines.value.take(4).map { it.name to it.barcode }
         BarcodeScannerDialog(
-            sampleBarcodes = sampleBarcodes,
             onBarcodeScanned = { barcode ->
                 viewModel.onBarcodeScanned(barcode)
             },
@@ -412,7 +418,7 @@ fun PosScreen(
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(med.name, fontWeight = FontWeight.Bold, maxLines = 1)
-                                    Text("المخزون: ${med.quantity} | السعر: ${med.sellPrice} ر.س", fontSize = 12.sp)
+                                    Text("المخزون: ${med.quantity} | السعر: ${med.sellPrice} ل.س", fontSize = 12.sp)
                                 }
                                 Button(
                                     onClick = {
@@ -454,7 +460,7 @@ fun PosScreen(
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                     Text(
-                        text = "${String.format(Locale.US, "%.2f", cartTotal)} ر.س",
+                        text = "${String.format(Locale.US, "%.2f", cartTotal)} ل.س",
                         fontSize = 24.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
@@ -468,7 +474,7 @@ fun PosScreen(
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                     Text(
-                        text = "الربح المتوقع: +${String.format(Locale.US, "%.2f", cartProfit)} ر.س",
+                        text = "الربح المتوقع: +${String.format(Locale.US, "%.2f", cartProfit)} ل.س",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
                         color = StatusSuccessGreen
@@ -555,12 +561,12 @@ fun PosScreen(
                                     fontSize = 14.sp
                                 )
                                 Text(
-                                    text = "${item.medicine.sellPrice} ر.س للقطعة | الباركود: ${item.medicine.barcode}",
+                                    text = "${item.medicine.sellPrice} ل.س للقطعة | الباركود: ${item.medicine.barcode}",
                                     fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Text(
-                                    text = "الإجمالي: ${String.format(Locale.US, "%.2f", item.subtotal)} ر.س",
+                                    text = "الإجمالي: ${String.format(Locale.US, "%.2f", item.subtotal)} ل.س",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.primary
@@ -617,7 +623,7 @@ fun PosScreen(
             Icon(Icons.Default.CheckCircle, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "إتمام البيع وخصم المخزون (${String.format(Locale.US, "%.2f", cartTotal)} ر.س)",
+                text = "إتمام البيع وخصم المخزون (${String.format(Locale.US, "%.2f", cartTotal)} ل.س)",
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -861,7 +867,7 @@ fun MedicineItemCard(
                 }
 
                 Text(
-                    text = "سعر البيع: ${medicine.sellPrice} ر.س (شراء: ${medicine.buyPrice})",
+                    text = "سعر البيع: ${medicine.sellPrice} ل.س (شراء: ${medicine.buyPrice} ل.س)",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium
                 )
@@ -999,42 +1005,6 @@ fun AlertsScreen(
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        // بطاقة تنبيه إحصائية
-        Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Warning,
-                    contentDescription = null,
-                    tint = StatusWarningAmber,
-                    modifier = Modifier.size(36.dp)
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Column {
-                    Text(
-                        text = "مركز التنبيهات الذكية",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp
-                    )
-                    Text(
-                        text = "مراقبة الصلاحيات والمخزون الحرج لحماية المرضى ومنع الخسائر المالية",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
         TabRow(selectedTabIndex = activeAlertTab) {
             alertTabs.forEachIndexed { index, title ->
                 Tab(
@@ -1226,14 +1196,14 @@ fun ReportsScreen(viewModel: MainViewModel) {
         ) {
             ReportMetricCard(
                 title = "إجمالي المبيعات",
-                value = "${String.format(Locale.US, "%.2f", totalRevenue)} ر.س",
+                value = "${String.format(Locale.US, "%.2f", totalRevenue)} ل.س",
                 icon = Icons.Default.MonetizationOn,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.weight(1f)
             )
             ReportMetricCard(
                 title = "صافي الأرباح",
-                value = "${String.format(Locale.US, "%.2f", totalProfit)} ر.س",
+                value = "${String.format(Locale.US, "%.2f", totalProfit)} ل.س",
                 icon = Icons.AutoMirrored.Filled.TrendingUp,
                 color = StatusSuccessGreen,
                 modifier = Modifier.weight(1f)
@@ -1307,19 +1277,19 @@ fun ReportsScreen(viewModel: MainViewModel) {
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Text(
-                                    text = "الكمية: ${sale.quantitySold} × ${sale.unitSellPrice} ر.س",
+                                    text = "الكمية: ${sale.quantitySold} × ${sale.unitSellPrice} ل.س",
                                     fontSize = 12.sp
                                 )
                             }
                             Column(horizontalAlignment = Alignment.End) {
                                 Text(
-                                    text = "${String.format(Locale.US, "%.2f", sale.totalSellPrice)} ر.س",
+                                    text = "${String.format(Locale.US, "%.2f", sale.totalSellPrice)} ل.س",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 15.sp,
                                     color = MaterialTheme.colorScheme.primary
                                 )
                                 Text(
-                                    text = "ربح: +${String.format(Locale.US, "%.2f", sale.totalProfit)} ر.س",
+                                    text = "ربح: +${String.format(Locale.US, "%.2f", sale.totalProfit)} ل.س",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = StatusSuccessGreen
@@ -1451,7 +1421,7 @@ fun AddEditMedicineDialog(
                     OutlinedTextField(
                         value = buyPriceText,
                         onValueChange = { buyPriceText = it },
-                        label = { Text("سعر الشراء (ر.س)") },
+                        label = { Text("سعر الشراء (ل.س)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true,
                         modifier = Modifier.weight(1f)
@@ -1459,7 +1429,7 @@ fun AddEditMedicineDialog(
                     OutlinedTextField(
                         value = sellPriceText,
                         onValueChange = { sellPriceText = it },
-                        label = { Text("سعر البيع (ر.س)") },
+                        label = { Text("سعر البيع (ل.س)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true,
                         modifier = Modifier.weight(1f)
