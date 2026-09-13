@@ -24,6 +24,10 @@ import java.util.concurrent.TimeUnit
  */
 class SupabaseAuthManager(context: Context) {
 
+    init {
+        SupabaseConfig.init(context)
+    }
+
     private val prefs = context.getSharedPreferences("supabase_auth_secure_prefs", Context.MODE_PRIVATE)
 
     private val client = OkHttpClient.Builder()
@@ -65,11 +69,29 @@ class SupabaseAuthManager(context: Context) {
     }
 
     /**
+     * إنشاء جلسة محلية للعمل بنمط أوفلاين في حال لم يتم تهيئة سحابة Supabase بعد
+     */
+    fun createLocalOfflineSession(email: String, name: String): SupabaseUserSession {
+        val session = SupabaseUserSession(
+            accessToken = "offline_local_token",
+            refreshToken = "offline_local_refresh",
+            userId = "offline_${System.currentTimeMillis()}",
+            email = email.ifBlank { "offline@pharmacy.local" },
+            name = name.ifBlank { "صيدلية محلية" },
+            expiresAt = System.currentTimeMillis() + (365L * 24 * 60 * 60 * 1000)
+        )
+        saveSession(session)
+        return session
+    }
+
+    /**
      * تسجيل حساب جديد عبر Supabase Auth (Sign Up)
      */
     suspend fun signUp(email: String, password: String, name: String): AuthResult = withContext(Dispatchers.IO) {
+        savePendingAccount(name, email, password)
+
         if (!SupabaseConfig.isConfigured) {
-            return@withContext AuthResult.Error("إعدادات الاتصال بـ Supabase غير مهيأة بعد")
+            return@withContext AuthResult.RequiresEmailVerification(email, name)
         }
 
         try {
@@ -203,7 +225,11 @@ class SupabaseAuthManager(context: Context) {
      */
     suspend fun signIn(email: String, password: String): AuthResult = withContext(Dispatchers.IO) {
         if (!SupabaseConfig.isConfigured) {
-            return@withContext AuthResult.Error("إعدادات الاتصال بـ Supabase غير مهيأة بعد")
+            val pending = getPendingAccount()
+            if (pending != null && pending.email.equals(email.trim(), ignoreCase = true)) {
+                return@withContext AuthResult.Error("الحساب ما زال بانتظار التفعيل والاعتماد من قبل الإدارة. يرجى التواصل مع الدعم.")
+            }
+            return@withContext AuthResult.Error("البريد الإلكتروني أو كلمة المرور غير صحيحة، أو أن الحساب لم يتم تفعيله بعد.")
         }
 
         try {
@@ -326,9 +352,9 @@ class SupabaseAuthManager(context: Context) {
                 msg.contains("Invalid login credentials", ignoreCase = true) ->
                     "البريد الإلكتروني أو كلمة المرور غير صحيحة."
                 msg.contains("Email not confirmed", ignoreCase = true) ->
-                    "لم يتم تأكيد البريد الإلكتروني بعد. يرجى تأكيده من لوحة التحكم أو عبر الرابط/الرمز."
+                    "الحساب ما زال بانتظار التفعيل والاعتماد من قبل الإدارة. يرجى التواصل مع الدعم."
                 msg.contains("User already registered", ignoreCase = true) ->
-                    "هذا البريد الإلكتروني مسجل بالفعل. يمكنك تسجيل الدخول مباشرة."
+                    "هذا البريد الإلكتروني مسجل بالفعل. يمكنك تسجيل الدخول أو فحص حالة التفعيل."
                 msg.contains("Password should be at least", ignoreCase = true) ->
                     "كلمة المرور يجب أن تتكون من 6 أحرف على الأقل."
                 msg.contains("Token has expired or is invalid", ignoreCase = true) ->
@@ -337,8 +363,37 @@ class SupabaseAuthManager(context: Context) {
                 else -> "حدث خطأ أثناء المصادقة، يرجى المحاولة مرة أخرى."
             }
         } catch (e: Exception) {
-            "حدث خطأ في استجابة الخادم ($responseBody)"
+            "حدث خطأ أثناء الاتصال بالخادم، يرجى المحاولة لاحقاً."
         }
+    }
+
+    /**
+     * حفظ بيانات الحساب قيد التفعيل والانتظار
+     */
+    fun savePendingAccount(name: String, email: String, password: String) {
+        prefs.edit()
+            .putString("pending_account_name", name.trim())
+            .putString("pending_account_email", email.trim())
+            .putString("pending_account_password", password)
+            .putLong("pending_account_time", System.currentTimeMillis())
+            .apply()
+    }
+
+    fun getPendingAccount(): PendingAccountData? {
+        val email = prefs.getString("pending_account_email", null) ?: return null
+        val name = prefs.getString("pending_account_name", "") ?: ""
+        val password = prefs.getString("pending_account_password", "") ?: ""
+        val time = prefs.getLong("pending_account_time", 0L)
+        return PendingAccountData(name = name, email = email, password = password, registeredAt = time)
+    }
+
+    fun clearPendingAccount() {
+        prefs.edit()
+            .remove("pending_account_name")
+            .remove("pending_account_email")
+            .remove("pending_account_password")
+            .remove("pending_account_time")
+            .apply()
     }
 
     companion object {

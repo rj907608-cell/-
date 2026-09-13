@@ -2483,7 +2483,7 @@ fun SettingsDialog(
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "المزامنة السحابية (Supabase)",
+                                        text = "المزامنة السحابية الاحتياطية",
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 13.sp
                                     )

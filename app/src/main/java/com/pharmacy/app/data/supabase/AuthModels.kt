@@ -54,3 +54,13 @@ sealed class AuthResult {
     data class RequiresEmailVerification(val email: String, val message: String) : AuthResult()
     data class Error(val message: String) : AuthResult()
 }
+
+/**
+ * بيانات الحساب قيد انتظار التفعيل والاعتماد من الإدارة
+ */
+data class PendingAccountData(
+    val name: String,
+    val email: String,
+    val password: String,
+    val registeredAt: Long = System.currentTimeMillis()
+)
