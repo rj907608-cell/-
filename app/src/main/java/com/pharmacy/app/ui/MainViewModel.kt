@@ -31,6 +31,7 @@ import kotlinx.coroutines.launch
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: PharmacyRepository
+    val authManager: com.pharmacy.app.data.supabase.SupabaseAuthManager
     val syncEngine: com.pharmacy.app.data.sync.PharmacySyncEngine
     val syncStatus: StateFlow<com.pharmacy.app.data.sync.SyncStatus>
     val pendingSyncCount: StateFlow<Int>
@@ -48,7 +49,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         val database = PharmacyDatabase.getDatabase(application)
-        val authManager = com.pharmacy.app.data.supabase.SupabaseAuthManager(application)
+        authManager = com.pharmacy.app.data.supabase.SupabaseAuthManager.getInstance(application)
         syncEngine = com.pharmacy.app.data.sync.PharmacySyncEngine(
             context = application,
             pharmacyDao = database.pharmacyDao(),
@@ -66,6 +67,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // ملء بيانات تجريبية عند التشغيل الأول
         viewModelScope.launch {
             repository.prepopulateSampleDataIfEmpty()
+        }
+
+        // فحص دوري للحساب: في حال تم حذف المستخدم من Users في لوحة تحكم Supabase
+        // يتم تسجيل خروجه فوراً
+        viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(30_000L) // فحص كل 30 ثانية
+                if (authManager.isLoggedIn.value) {
+                    val isValid = authManager.validateSessionWithServer()
+                    if (isValid == false) {
+                        _uiMessage.value = "تم إلغاء أو حذف حسابك من لوحة التحكم، تم تسجيل الخروج."
+                    }
+                }
+            }
+        }
+    }
+
+    fun signOut() {
+        viewModelScope.launch {
+            authManager.signOut()
         }
     }
 

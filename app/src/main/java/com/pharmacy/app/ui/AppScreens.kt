@@ -47,6 +47,8 @@ import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.LocalPharmacy
 import androidx.compose.material.icons.filled.MonetizationOn
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.PointOfSale
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.QrCodeScanner
@@ -159,6 +161,7 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
     var medicineToEdit by remember { mutableStateOf<MedicineEntity?>(null) }
     var showAddMedicineDialog by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
+    var showProfileDialog by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val uiMessage by viewModel.uiMessage.collectAsStateWithLifecycle()
@@ -268,6 +271,18 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
                         Icon(
                             imageVector = Icons.Default.QrCodeScanner,
                             contentDescription = "مسح الباركود",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    // زر الملف الشخصي ومعلومات الحساب وتسجيل الخروج
+                    IconButton(
+                        onClick = { showProfileDialog = true },
+                        modifier = Modifier.testTag("open_profile_action")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = "الملف الشخصي والحساب",
                             tint = MaterialTheme.colorScheme.primary
                         )
                     }
@@ -420,6 +435,14 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
                 viewModel.updateDefaultMinStockAlert(minStock)
             },
             onDismiss = { showSettingsDialog = false }
+        )
+    }
+
+    // نافذة الملف الشخصي ومعلومات الحساب وتسجيل الخروج
+    if (showProfileDialog) {
+        UserProfileDialog(
+            viewModel = viewModel,
+            onDismiss = { showProfileDialog = false }
         )
     }
 
@@ -2550,6 +2573,227 @@ fun SettingsDialog(
         dismissButton = {
             OutlinedButton(onClick = onDismiss) {
                 Text("إلغاء")
+            }
+        }
+    )
+}
+
+/**
+ * نافذة الملف الشخصي ومعلومات الحساب وتسجيل الخروج
+ */
+@Composable
+fun UserProfileDialog(
+    viewModel: MainViewModel,
+    onDismiss: () -> Unit
+) {
+    val session by viewModel.authManager.currentSession.collectAsStateWithLifecycle()
+    var showLogoutConfirm by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.size(42.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+                Column {
+                    Text(
+                        text = "الملف الشخصي",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+                    Text(
+                        text = "بيانات حساب الصيدلية",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // بطاقة بيانات المستخدم
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "اسم المستخدم:",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = session?.name?.ifBlank { "صيدلية" } ?: "صيدلية",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "البريد الإلكتروني:",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = session?.email ?: "غير محدد",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "معرّف الحساب (ID):",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            val shortId = session?.userId?.take(12) ?: "---"
+                            Text(
+                                text = "$shortId...",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "حالة الحساب:",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer
+                            ) {
+                                Text(
+                                    text = "نشط ومفعل",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // زر تأكيد تسجيل الخروج
+                if (showLogoutConfirm) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "هل أنت متأكد من رغبتك في تسجيل الخروج من هذا الحساب؟",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        onDismiss()
+                                        viewModel.signOut()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("نعم، خروج", fontSize = 12.sp)
+                                }
+                                OutlinedButton(
+                                    onClick = { showLogoutConfirm = false },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("إلغاء", fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Button(
+                        onClick = { showLogoutConfirm = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("logout_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Logout,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "تسجيل الخروج من الحساب",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("إغلاق")
             }
         }
     )

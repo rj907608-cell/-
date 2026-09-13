@@ -69,6 +69,85 @@ class SupabaseAuthManager(context: Context) {
     }
 
     /**
+     * تسجيل الخروج وإلغاء الجلسة محلياً وسحابياً
+     */
+    suspend fun signOut(): Boolean = withContext(Dispatchers.IO) {
+        val session = _currentSession.value
+        if (session != null && SupabaseConfig.isConfigured && session.accessToken.isNotBlank()) {
+            try {
+                val url = "${SupabaseConfig.SUPABASE_URL}/auth/v1/logout"
+                val request = Request.Builder()
+                    .url(url)
+                    .addHeader("apikey", SupabaseConfig.SUPABASE_KEY)
+                    .addHeader("Authorization", "Bearer ${session.accessToken}")
+                    .post("{}".toRequestBody(jsonMediaType))
+                    .build()
+                client.newCall(request).execute()
+            } catch (e: Exception) {
+                Log.w("SupabaseAuth", "Remote logout call failed: ${e.message}")
+            }
+        }
+        clearSession()
+        clearPendingAccount()
+        true
+    }
+
+    /**
+     * التحقق من أن حساب المستخدم ما زال موجوداً ومفعلاً على خادم Supabase
+     * إذا تم حذف الحساب من قائمة Users في لوحة التحكم، فسيتم إرجاع خطأ 401/403 أو 400
+     * وعندها يتم تلقائياً تسجيل الخروج وحذف الجلسة المحلية فوراً.
+     * يرجع true إذا كان الحساب سليم وموجود، false إذا تم حذفه من السيرفر، null إذا كان فحص الشبكة غير متاح (أوفلاين)
+     */
+    suspend fun validateSessionWithServer(): Boolean? = withContext(Dispatchers.IO) {
+        val session = _currentSession.value ?: loadSavedSession() ?: return@withContext false
+        if (!SupabaseConfig.isConfigured || session.accessToken.isBlank() || session.userId.startsWith("offline_")) {
+            return@withContext null
+        }
+
+        try {
+            val url = "${SupabaseConfig.SUPABASE_URL}/auth/v1/user"
+            val request = Request.Builder()
+                .url(url)
+                .addHeader("apikey", SupabaseConfig.SUPABASE_KEY)
+                .addHeader("Authorization", "Bearer ${session.accessToken}")
+                .get()
+                .build()
+
+            val response = client.newCall(request).execute()
+            val code = response.code
+
+            // إذا أرجع 200 OK فالمستخدم موجود ومفعل
+            if (response.isSuccessful) {
+                return@withContext true
+            }
+
+            // إذا انتهت صلاحية التوكن أو غير صالح، نحاول تجديده
+            if (code == 401 || code == 403 || code == 400) {
+                if (session.refreshToken.isNotBlank()) {
+                    val refreshOk = refreshSessionSilently()
+                    if (refreshOk) {
+                        return@withContext true
+                    }
+                }
+                // الحساب تم حذفه من لوحة تحكم Supabase Users أو تم إلغاؤه
+                Log.w("SupabaseAuth", "User account removed or invalid on Supabase (HTTP $code). Logging out.")
+                withContext(Dispatchers.Main) {
+                    clearSession()
+                }
+                return@withContext false
+            }
+
+            return@withContext null
+        } catch (e: IOException) {
+            // انقطاع إنترنت عادي
+            return@withContext null
+        } catch (e: Exception) {
+            Log.e("SupabaseAuth", "Error verifying user session", e)
+            return@withContext null
+        }
+    }
+
+    /**
      * إنشاء جلسة محلية للعمل بنمط أوفلاين في حال لم يتم تهيئة سحابة Supabase بعد
      */
     fun createLocalOfflineSession(email: String, name: String): SupabaseUserSession {
@@ -143,10 +222,10 @@ class SupabaseAuthManager(context: Context) {
                 saveSession(session)
                 return@withContext AuthResult.Success(session)
             } else {
-                // الحساب يتطلب كود OTP أو تأكيد البريد
+                // الحساب بانتظار التفعيل والاعتماد من قبل الإدارة في Supabase Users
                 return@withContext AuthResult.RequiresEmailVerification(
                     email = email,
-                    message = "تم إنشاء الحساب بنجاح. يرجى إدخال رمز التحقق (OTP) المرسل إلى بريدك."
+                    message = "تم إنشاء الحساب بنجاح. حسابك بانتظار الاعتماد والتفعيل من قبل الإدارة."
                 )
             }
         } catch (e: IOException) {
