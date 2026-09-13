@@ -23,9 +23,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import com.example.ui.theme.MyApplicationTheme
+import com.pharmacy.app.data.supabase.SupabaseAuthManager
 import com.pharmacy.app.ui.MainPharmacyScreen
 import com.pharmacy.app.ui.MainViewModel
 import com.pharmacy.app.ui.PharmacySplashScreen
+import com.pharmacy.app.ui.auth.PharmacyAuthScreen
 
 /**
  * نقطة الدخول الرئيسية لتطبيق إدارة الصيدلية
@@ -38,8 +40,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        val authManager = SupabaseAuthManager.getInstance(applicationContext)
+
         setContent {
             val isDarkTheme by viewModel.isDarkTheme.collectAsStateWithLifecycle()
+            val isLoggedIn by authManager.isLoggedIn.collectAsStateWithLifecycle()
             var showSplash by remember { mutableStateOf(true) }
 
             MyApplicationTheme(darkTheme = isDarkTheme) {
@@ -50,10 +55,22 @@ class MainActivity : ComponentActivity() {
                         color = MaterialTheme.colorScheme.background
                     ) {
                         Box(modifier = Modifier.fillMaxSize()) {
-                            // تحميل واجهة الصيدلية بالكامل في الخلفية لضمان أعلى سرعة وسلاسة
-                            MainPharmacyScreen(viewModel = viewModel)
+                            if (isLoggedIn) {
+                                // الواجهة الرئيسية للصيدلية تعمل بكامل وظائفها السابقة دون أي مساس
+                                MainPharmacyScreen(viewModel = viewModel)
+                            } else {
+                                // شاشة تسجيل الدخول / إنشاء الحساب تظهر فقط عند أول تشغيل قبل تسجيل الدخول
+                                PharmacyAuthScreen(
+                                    authManager = authManager,
+                                    onAuthSuccess = {
+                                        // عند نجاح الدخول يتم الانتقال تلقائياً للواجهة الرئيسية وتخزين الجلسة محلياً
+                                        // وسحب بيانات الصيدلية تلقائياً من السحابة إذا كان جهازاً جديداً
+                                        viewModel.pullCloudDataNow()
+                                    }
+                                )
+                            }
 
-                            // شاشة الترحيب تظهر وتتلاشى بنعومة دون أي تأخير
+                            // شاشة الترحيب تظهر وتتلاشى بنعومة عند فتح التطبيق
                             AnimatedVisibility(
                                 visible = showSplash,
                                 enter = fadeIn(),

@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -54,6 +55,7 @@ import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
@@ -222,6 +224,30 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
                 },
                 actions = {
                     val isDarkTheme by viewModel.isDarkTheme.collectAsStateWithLifecycle()
+                    // زر حالة المزامنة السحابية
+                    val syncStatus by viewModel.syncStatus.collectAsStateWithLifecycle()
+                    val pendingCount by viewModel.pendingSyncCount.collectAsStateWithLifecycle()
+
+                    IconButton(
+                        onClick = { viewModel.triggerSyncNow() },
+                        modifier = Modifier.testTag("sync_cloud_action")
+                    ) {
+                        BadgedBox(
+                            badge = {
+                                if (pendingCount > 0) {
+                                    Badge { Text("$pendingCount") }
+                                }
+                            }
+                        ) {
+                            val isSyncing = syncStatus is com.pharmacy.app.data.sync.SyncStatus.Syncing
+                            Icon(
+                                imageVector = if (isSyncing) Icons.Default.Sync else Icons.Default.CloudDone,
+                                contentDescription = if (pendingCount > 0) "عمليات معلقة بالمزامنة: $pendingCount" else "مزامنة السحابة",
+                                tint = if (isSyncing) MaterialTheme.colorScheme.primary else if (pendingCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+
                     // زر التبديل بين الوضع الداكن والفاتح
                     IconButton(
                         onClick = { viewModel.toggleTheme() },
@@ -388,6 +414,7 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
         SettingsDialog(
             currentExpiryDays = expiryAlertDays,
             currentDefaultMinStock = defaultMinStockAlert,
+            viewModel = viewModel,
             onSaveSettings = { days, minStock ->
                 viewModel.updateExpiryAlertDays(days)
                 viewModel.updateDefaultMinStockAlert(minStock)
@@ -2267,11 +2294,14 @@ fun InvoiceDetailsDialog(
 fun SettingsDialog(
     currentExpiryDays: Int,
     currentDefaultMinStock: Int,
+    viewModel: MainViewModel? = null,
     onSaveSettings: (expiryDays: Int, defaultMinStock: Int) -> Unit,
     onDismiss: () -> Unit
 ) {
     var expiryDaysSlider by remember { mutableFloatStateOf(currentExpiryDays.coerceIn(5, 180).toFloat()) }
     var minStockSlider by remember { mutableFloatStateOf(currentDefaultMinStock.coerceIn(1, 50).toFloat()) }
+    val syncStatus = viewModel?.syncStatus?.collectAsStateWithLifecycle()?.value
+    val pendingCount = viewModel?.pendingSyncCount?.collectAsStateWithLifecycle()?.value ?: 0
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -2422,6 +2452,86 @@ fun SettingsDialog(
                             Text("5 أيام", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text("90 يوماً", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text("180 يوماً", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+
+                // 3. قسم المزامنة السحابية وقائمة الانتظار (Supabase Sync & Queue)
+                if (viewModel != null) {
+                    Card(
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.CloudDone,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "المزامنة السحابية (Supabase)",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp
+                                    )
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (pendingCount > 0) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer
+                                ) {
+                                    Text(
+                                        text = if (pendingCount > 0) "$pendingCount معلقة" else "محدّث",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp,
+                                        color = if (pendingCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                    )
+                                }
+                            }
+
+                            val statusText = when (syncStatus) {
+                                is com.pharmacy.app.data.sync.SyncStatus.Syncing -> "جاري مزامنة ورفع البيانات للسحابة..."
+                                is com.pharmacy.app.data.sync.SyncStatus.Success -> syncStatus.message
+                                is com.pharmacy.app.data.sync.SyncStatus.Error -> syncStatus.message
+                                else -> if (pendingCount > 0) "يوجد $pendingCount عملية بانتظار رفعها للسحابة عند توفر الإنترنت" else "جميع بيانات الصيدلية متطابقة مع السحابة"
+                            }
+
+                            Text(
+                                text = statusText,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = { viewModel.triggerSyncNow() },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("رفع الآن", fontSize = 12.sp)
+                                }
+                                OutlinedButton(
+                                    onClick = { viewModel.pullCloudDataNow() },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("تنزيل السحابة", fontSize = 12.sp)
+                                }
+                            }
                         }
                     }
                 }

@@ -161,12 +161,13 @@ interface PharmacyDao {
  * قاعدة بيانات الصيدلية الرئيسية (Room Database)
  */
 @Database(
-    entities = [MedicineEntity::class, SaleRecordEntity::class],
-    version = 2,
+    entities = [MedicineEntity::class, SaleRecordEntity::class, com.pharmacy.app.data.sync.SyncQueueEntity::class],
+    version = 3,
     exportSchema = false
 )
 abstract class PharmacyDatabase : RoomDatabase() {
     abstract fun pharmacyDao(): PharmacyDao
+    abstract fun syncQueueDao(): com.pharmacy.app.data.sync.SyncQueueDao
 
     companion object {
         @Volatile

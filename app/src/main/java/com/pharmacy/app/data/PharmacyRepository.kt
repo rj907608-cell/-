@@ -22,7 +22,10 @@ data class CartItem(
 /**
  * مستودع إدارة بيانات الصيدلية (Pharmacy Repository)
  */
-class PharmacyRepository(private val dao: PharmacyDao) {
+class PharmacyRepository(
+    private val dao: PharmacyDao,
+    private val syncEngine: com.pharmacy.app.data.sync.PharmacySyncEngine? = null
+) {
 
     val allMedicines: Flow<List<MedicineEntity>> = dao.getAllMedicines()
     val lowStockMedicines: Flow<List<MedicineEntity>> = dao.getLowStockMedicines()
@@ -53,7 +56,15 @@ class PharmacyRepository(private val dao: PharmacyDao) {
     }
 
     suspend fun saveMedicine(medicine: MedicineEntity): Long = withContext(Dispatchers.IO) {
-        dao.insertMedicine(medicine)
+        val insertedId = dao.insertMedicine(medicine)
+        val finalEntity = if (medicine.id <= 0) medicine.copy(id = insertedId) else medicine
+        syncEngine?.enqueueOperation(
+            operationType = com.pharmacy.app.data.sync.SyncOperationType.UPSERT_MEDICINE,
+            entityType = "medicine",
+            localId = insertedId,
+            payloadJson = com.pharmacy.app.data.sync.SyncJsonHelper.medicineToJson(finalEntity)
+        )
+        insertedId
     }
 
     /**
@@ -126,6 +137,12 @@ class PharmacyRepository(private val dao: PharmacyDao) {
             )
 
             dao.updateMedicine(updatedEntity)
+            syncEngine?.enqueueOperation(
+                operationType = com.pharmacy.app.data.sync.SyncOperationType.UPSERT_MEDICINE,
+                entityType = "medicine",
+                localId = updatedEntity.id,
+                payloadJson = com.pharmacy.app.data.sync.SyncJsonHelper.medicineToJson(updatedEntity)
+            )
             Pair(updatedEntity, true) // تم التراكم
         } else {
             // دواء جديد كلياً
@@ -145,16 +162,35 @@ class PharmacyRepository(private val dao: PharmacyDao) {
                 batchesJson = BatchConverter.toJson(initialBatches)
             )
             val newId = dao.insertMedicine(entityToInsert)
-            Pair(entityToInsert.copy(id = newId), false) // إضافة جديدة
+            val insertedEntity = entityToInsert.copy(id = newId)
+            syncEngine?.enqueueOperation(
+                operationType = com.pharmacy.app.data.sync.SyncOperationType.UPSERT_MEDICINE,
+                entityType = "medicine",
+                localId = newId,
+                payloadJson = com.pharmacy.app.data.sync.SyncJsonHelper.medicineToJson(insertedEntity)
+            )
+            Pair(insertedEntity, false) // إضافة جديدة
         }
     }
 
     suspend fun updateMedicine(medicine: MedicineEntity) = withContext(Dispatchers.IO) {
         dao.updateMedicine(medicine)
+        syncEngine?.enqueueOperation(
+            operationType = com.pharmacy.app.data.sync.SyncOperationType.UPSERT_MEDICINE,
+            entityType = "medicine",
+            localId = medicine.id,
+            payloadJson = com.pharmacy.app.data.sync.SyncJsonHelper.medicineToJson(medicine)
+        )
     }
 
     suspend fun deleteMedicine(medicine: MedicineEntity) = withContext(Dispatchers.IO) {
         dao.deleteMedicine(medicine)
+        syncEngine?.enqueueOperation(
+            operationType = com.pharmacy.app.data.sync.SyncOperationType.DELETE_MEDICINE,
+            entityType = "medicine",
+            localId = medicine.id,
+            payloadJson = "{}"
+        )
     }
 
     suspend fun adjustStock(medicineId: Long, delta: Int): Boolean = withContext(Dispatchers.IO) {
@@ -197,6 +233,12 @@ class PharmacyRepository(private val dao: PharmacyDao) {
             batchesJson = BatchConverter.toJson(batches)
         )
         dao.updateMedicine(updated)
+        syncEngine?.enqueueOperation(
+            operationType = com.pharmacy.app.data.sync.SyncOperationType.UPSERT_MEDICINE,
+            entityType = "medicine",
+            localId = updated.id,
+            payloadJson = com.pharmacy.app.data.sync.SyncJsonHelper.medicineToJson(updated)
+        )
         true
     }
 
@@ -246,11 +288,16 @@ class PharmacyRepository(private val dao: PharmacyDao) {
                 }
             }
 
-            dao.updateMedicine(
-                medicine.copy(
-                    quantity = newQty,
-                    batchesJson = BatchConverter.toJson(batches)
-                )
+            val updatedMedicine = medicine.copy(
+                quantity = newQty,
+                batchesJson = BatchConverter.toJson(batches)
+            )
+            dao.updateMedicine(updatedMedicine)
+            syncEngine?.enqueueOperation(
+                operationType = com.pharmacy.app.data.sync.SyncOperationType.UPSERT_MEDICINE,
+                entityType = "medicine",
+                localId = updatedMedicine.id,
+                payloadJson = com.pharmacy.app.data.sync.SyncJsonHelper.medicineToJson(updatedMedicine)
             )
 
             val unitSell = item.effectiveSellPrice
@@ -270,7 +317,19 @@ class PharmacyRepository(private val dao: PharmacyDao) {
             )
         }
 
-        dao.insertSales(salesList)
+        val insertedIds = dao.insertSales(salesList)
+        // إضافة المبيعات لقائمة المزامنة
+        for (i in salesList.indices) {
+            val sale = salesList[i]
+            val saleId = insertedIds.getOrNull(i) ?: 0L
+            val finalSale = sale.copy(id = saleId)
+            syncEngine?.enqueueOperation(
+                operationType = com.pharmacy.app.data.sync.SyncOperationType.INSERT_SALE,
+                entityType = "sale",
+                localId = saleId,
+                payloadJson = com.pharmacy.app.data.sync.SyncJsonHelper.saleToJson(finalSale)
+            )
+        }
         true
     }
 
@@ -296,7 +355,25 @@ class PharmacyRepository(private val dao: PharmacyDao) {
                 totalProfit = (unitSell - medicine.buyPrice) * quantity,
                 timestamp = System.currentTimeMillis()
             )
-            dao.insertSale(sale)
+            val insertedSaleId = dao.insertSale(sale)
+            val finalSale = sale.copy(id = insertedSaleId)
+            syncEngine?.enqueueOperation(
+                operationType = com.pharmacy.app.data.sync.SyncOperationType.INSERT_SALE,
+                entityType = "sale",
+                localId = insertedSaleId,
+                payloadJson = com.pharmacy.app.data.sync.SyncJsonHelper.saleToJson(finalSale)
+            )
+
+            // تحديث المخزون في السحابة أيضاً
+            val updatedMed = dao.getMedicineById(medicine.id)
+            if (updatedMed != null) {
+                syncEngine?.enqueueOperation(
+                    operationType = com.pharmacy.app.data.sync.SyncOperationType.UPSERT_MEDICINE,
+                    entityType = "medicine",
+                    localId = updatedMed.id,
+                    payloadJson = com.pharmacy.app.data.sync.SyncJsonHelper.medicineToJson(updatedMed)
+                )
+            }
             true
         } else {
             false
@@ -328,16 +405,31 @@ class PharmacyRepository(private val dao: PharmacyDao) {
                         )
                     )
                 }
-                dao.updateMedicine(
-                    med.copy(
-                        quantity = newQty,
-                        batchesJson = BatchConverter.toJson(batches)
-                    )
+                val updatedMed = med.copy(
+                    quantity = newQty,
+                    batchesJson = BatchConverter.toJson(batches)
+                )
+                dao.updateMedicine(updatedMed)
+                syncEngine?.enqueueOperation(
+                    operationType = com.pharmacy.app.data.sync.SyncOperationType.UPSERT_MEDICINE,
+                    entityType = "medicine",
+                    localId = updatedMed.id,
+                    payloadJson = com.pharmacy.app.data.sync.SyncJsonHelper.medicineToJson(updatedMed)
                 )
             }
         }
         val count = dao.deleteSalesByInvoiceId(invoiceId)
-        count > 0
+        if (count > 0) {
+            syncEngine?.enqueueOperation(
+                operationType = com.pharmacy.app.data.sync.SyncOperationType.DELETE_INVOICE,
+                entityType = "sale",
+                localId = 0L,
+                payloadJson = com.pharmacy.app.data.sync.SyncJsonHelper.invoiceDeleteToJson(invoiceId)
+            )
+            true
+        } else {
+            false
+        }
     }
 
     /**

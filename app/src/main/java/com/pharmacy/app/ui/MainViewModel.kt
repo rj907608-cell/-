@@ -31,6 +31,9 @@ import kotlinx.coroutines.launch
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: PharmacyRepository
+    val syncEngine: com.pharmacy.app.data.sync.PharmacySyncEngine
+    val syncStatus: StateFlow<com.pharmacy.app.data.sync.SyncStatus>
+    val pendingSyncCount: StateFlow<Int>
 
     // حفظ واسترجاع اختيار الثيم (الوضع الداكن / الفاتح) محلياً
     private val prefs = application.getSharedPreferences("pharmacy_app_prefs", Context.MODE_PRIVATE)
@@ -45,10 +48,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         val database = PharmacyDatabase.getDatabase(application)
-        repository = PharmacyRepository(database.pharmacyDao())
+        val authManager = com.pharmacy.app.data.supabase.SupabaseAuthManager(application)
+        syncEngine = com.pharmacy.app.data.sync.PharmacySyncEngine(
+            context = application,
+            pharmacyDao = database.pharmacyDao(),
+            syncQueueDao = database.syncQueueDao(),
+            authManager = authManager
+        )
+        syncStatus = syncEngine.syncStatus
+        pendingSyncCount = syncEngine.pendingCountFlow.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = 0
+        )
+
+        repository = PharmacyRepository(database.pharmacyDao(), syncEngine)
         // ملء بيانات تجريبية عند التشغيل الأول
         viewModelScope.launch {
             repository.prepopulateSampleDataIfEmpty()
+        }
+    }
+
+    fun triggerSyncNow() {
+        viewModelScope.launch {
+            syncEngine.processPendingQueue()
+        }
+    }
+
+    fun pullCloudDataNow() {
+        viewModelScope.launch {
+            syncEngine.pullDataFromCloud()
         }
     }
 
