@@ -682,6 +682,7 @@ private fun WaitingActivationView(
     onChangeAccount: () -> Unit
 ) {
     val context = LocalContext.current
+    val numericAccId = String.format("%08d", Math.abs(pendingAccount.email.hashCode().toLong()) % 100000000)
 
     Card(
         shape = RoundedCornerShape(24.dp),
@@ -770,6 +771,20 @@ private fun WaitingActivationView(
                             color = MaterialTheme.colorScheme.primary
                         )
                     }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "معرّف الحساب (ID): ",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = numericAccId,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             }
 
@@ -834,7 +849,7 @@ private fun WaitingActivationView(
                             } else {
                                 SUPPORT_PHONE_NUMBER
                             }
-                            val defaultMsg = "مرحباً، أرجو تفعيل حسابي في تطبيق الصيدلية.\nالبريد: ${pendingAccount.email}\nالاسم: ${pendingAccount.name}"
+                            val defaultMsg = "مرحباً، أرجو تفعيل حسابي في تطبيق الصيدلية.\nالاسم: ${pendingAccount.name}\nالبريد: ${pendingAccount.email}\nمعرف الحساب: $numericAccId"
                             val waUrl = "https://wa.me/$waNumber?text=${Uri.encode(defaultMsg)}"
                             val waIntent = Intent(Intent.ACTION_VIEW, Uri.parse(waUrl))
                             context.startActivity(waIntent)

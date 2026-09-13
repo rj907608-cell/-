@@ -209,25 +209,11 @@ class SupabaseAuthManager(context: Context) {
             val userId = userObj?.optString("id") ?: jsonObj.optString("id", "")
             val userEmail = userObj?.optString("email") ?: email
 
-            // إذا أرجع Supabase جلسة مباشرة (في حال كان التأكيد معطلاً أو تم إنشاء التوكن فوراً)
-            if (accessToken.isNotBlank() && userId.isNotBlank()) {
-                val session = SupabaseUserSession(
-                    userId = userId,
-                    email = userEmail,
-                    name = name,
-                    accessToken = accessToken,
-                    refreshToken = refreshToken,
-                    expiresAt = expiresAt
-                )
-                saveSession(session)
-                return@withContext AuthResult.Success(session)
-            } else {
-                // الحساب بانتظار التفعيل والاعتماد من قبل الإدارة في Supabase Users
-                return@withContext AuthResult.RequiresEmailVerification(
-                    email = email,
-                    message = "تم إنشاء الحساب بنجاح. حسابك بانتظار الاعتماد والتفعيل من قبل الإدارة."
-                )
-            }
+            // عند إنشاء الحساب، يذهب الحساب دائماً إلى حالة الانتظار حتى يقوم المدير بتأكيده من لوحة تحكم Supabase Users
+            return@withContext AuthResult.RequiresEmailVerification(
+                email = email,
+                message = "تم استلام بيانات تسجيلك بنجاح. حسابك بانتظار الاعتماد والتفعيل من قبل الإدارة."
+            )
         } catch (e: IOException) {
             Log.e("SupabaseAuth", "Network error during signUp", e)
             return@withContext AuthResult.Error("تعذر الاتصال بالخادم. يرجى التأكد من اتصال الإنترنت.")

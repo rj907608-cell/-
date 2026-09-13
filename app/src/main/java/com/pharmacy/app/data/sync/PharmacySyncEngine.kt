@@ -68,11 +68,28 @@ class PharmacySyncEngine(
     val pendingCountFlow = syncQueueDao.getPendingCountFlow()
 
     init {
-        // مراقبة اتصال الشبكة: عند عودة الإنترنت، تشغيل المزامنة فوراً
+        // مراقبة اتصال الشبكة: عند عودة الإنترنت، تشغيل المزامنة فوراً وبشكل تلقائي تماماً
         scope.launch {
             connectivityMonitor.isOnline.collectLatest { online ->
                 if (online && authManager.hasValidLocalSession() && SupabaseConfig.isConfigured) {
                     processPendingQueue()
+                }
+            }
+        }
+
+        // مزامنة سحابية دورية تلقائية مستمرة كل 20 ثانية دون أي تدخل من المستخدم
+        scope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(20_000L)
+                if (connectivityMonitor.isCurrentlyConnected() &&
+                    authManager.hasValidLocalSession() &&
+                    SupabaseConfig.isConfigured
+                ) {
+                    try {
+                        processPendingQueue()
+                    } catch (e: Exception) {
+                        // المتابعة بصمت
+                    }
                 }
             }
         }

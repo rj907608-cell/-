@@ -227,29 +227,6 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
                 },
                 actions = {
                     val isDarkTheme by viewModel.isDarkTheme.collectAsStateWithLifecycle()
-                    // زر حالة المزامنة السحابية
-                    val syncStatus by viewModel.syncStatus.collectAsStateWithLifecycle()
-                    val pendingCount by viewModel.pendingSyncCount.collectAsStateWithLifecycle()
-
-                    IconButton(
-                        onClick = { viewModel.triggerSyncNow() },
-                        modifier = Modifier.testTag("sync_cloud_action")
-                    ) {
-                        BadgedBox(
-                            badge = {
-                                if (pendingCount > 0) {
-                                    Badge { Text("$pendingCount") }
-                                }
-                            }
-                        ) {
-                            val isSyncing = syncStatus is com.pharmacy.app.data.sync.SyncStatus.Syncing
-                            Icon(
-                                imageVector = if (isSyncing) Icons.Default.Sync else Icons.Default.CloudDone,
-                                contentDescription = if (pendingCount > 0) "عمليات معلقة بالمزامنة: $pendingCount" else "مزامنة السحابة",
-                                tint = if (isSyncing) MaterialTheme.colorScheme.primary else if (pendingCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
 
                     // زر التبديل بين الوضع الداكن والفاتح
                     IconButton(
@@ -2323,8 +2300,6 @@ fun SettingsDialog(
 ) {
     var expiryDaysSlider by remember { mutableFloatStateOf(currentExpiryDays.coerceIn(5, 180).toFloat()) }
     var minStockSlider by remember { mutableFloatStateOf(currentDefaultMinStock.coerceIn(1, 50).toFloat()) }
-    val syncStatus = viewModel?.syncStatus?.collectAsStateWithLifecycle()?.value
-    val pendingCount = viewModel?.pendingSyncCount?.collectAsStateWithLifecycle()?.value ?: 0
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -2478,86 +2453,6 @@ fun SettingsDialog(
                         }
                     }
                 }
-
-                // 3. قسم المزامنة السحابية وقائمة الانتظار (Supabase Sync & Queue)
-                if (viewModel != null) {
-                    Card(
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Default.CloudDone,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = "المزامنة السحابية الاحتياطية",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp
-                                    )
-                                }
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = if (pendingCount > 0) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer
-                                ) {
-                                    Text(
-                                        text = if (pendingCount > 0) "$pendingCount معلقة" else "محدّث",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 11.sp,
-                                        color = if (pendingCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                    )
-                                }
-                            }
-
-                            val statusText = when (syncStatus) {
-                                is com.pharmacy.app.data.sync.SyncStatus.Syncing -> "جاري مزامنة ورفع البيانات للسحابة..."
-                                is com.pharmacy.app.data.sync.SyncStatus.Success -> syncStatus.message
-                                is com.pharmacy.app.data.sync.SyncStatus.Error -> syncStatus.message
-                                else -> if (pendingCount > 0) "يوجد $pendingCount عملية بانتظار رفعها للسحابة عند توفر الإنترنت" else "جميع بيانات الصيدلية متطابقة مع السحابة"
-                            }
-
-                            Text(
-                                text = statusText,
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                OutlinedButton(
-                                    onClick = { viewModel.triggerSyncNow() },
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text("رفع الآن", fontSize = 12.sp)
-                                }
-                                OutlinedButton(
-                                    onClick = { viewModel.pullCloudDataNow() },
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text("تنزيل السحابة", fontSize = 12.sp)
-                                }
-                            }
-                        }
-                    }
-                }
             }
         },
         confirmButton = {
@@ -2691,11 +2586,21 @@ fun UserProfileDialog(
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            val shortId = session?.userId?.take(12) ?: "---"
+                            val rawId = session?.userId ?: ""
+                            val numericId = if (rawId.isNotBlank()) {
+                                val digits = rawId.filter { it.isDigit() }
+                                if (digits.length >= 6) {
+                                    digits.take(8)
+                                } else {
+                                    val hash = Math.abs(rawId.hashCode().toLong())
+                                    String.format("%08d", hash % 100000000)
+                                }
+                            } else "---"
                             Text(
-                                text = "$shortId...",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                text = numericId,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
                             )
                         }
 
