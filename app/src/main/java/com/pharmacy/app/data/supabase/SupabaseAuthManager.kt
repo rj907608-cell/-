@@ -179,6 +179,9 @@ class SupabaseAuthManager(context: Context) {
                 val dataObj = JSONObject().apply {
                     put("display_name", name.trim())
                     put("name", name.trim())
+                    put("is_approved", false)
+                    put("approved", false)
+                    put("status", "pending")
                 }
                 put("data", dataObj)
             }
@@ -389,6 +392,15 @@ class SupabaseAuthManager(context: Context) {
             val userMetadata = userObj?.optJSONObject("user_metadata")
             val name = userMetadata?.optString("name") ?: userMetadata?.optString("display_name") ?: ""
 
+            // التحقق الصارم مما إذا كان الحساب قد تم تأكيده واعتماده من قبل الإدارة في Supabase
+            val isConfirmed = isUserConfirmedByAdmin(userObj)
+            if (!isConfirmed) {
+                return AuthResult.RequiresEmailVerification(
+                    email = userEmail,
+                    message = "الحساب ما زال قيد الانتظار ولم يتم تأكيده من قبل الإدارة في Supabase بعد."
+                )
+            }
+
             val session = SupabaseUserSession(
                 userId = userId,
                 email = userEmail,
@@ -401,6 +413,67 @@ class SupabaseAuthManager(context: Context) {
             AuthResult.Success(session)
         } catch (e: Exception) {
             AuthResult.Error("فشل تحليل بيانات الجلسة: ${e.message}")
+        }
+    }
+
+    /**
+     * التحقق مما إذا كان الحساب قد تم اعتماده وتأكيده في Supabase (سواء بزر Confirm user أو عبر metadata)
+     */
+    fun isUserConfirmedByAdmin(userObj: JSONObject?): Boolean {
+        if (userObj == null) return false
+        val userMetadata = userObj.optJSONObject("user_metadata")
+        val appMetadata = userObj.optJSONObject("app_metadata")
+
+        // 1. فحص حقل الموافقة في user_metadata أو app_metadata إذا قام المدير بتعديلها من Supabase Users
+        val isApprovedMeta = userMetadata?.optBoolean("is_approved", false) == true ||
+                userMetadata?.optBoolean("approved", false) == true ||
+                appMetadata?.optBoolean("is_approved", false) == true ||
+                appMetadata?.optBoolean("approved", false) == true
+
+        val status = (userMetadata?.optString("status") ?: "").lowercase()
+        val isStatusApproved = status == "active" || status == "approved" || status == "confirmed"
+
+        if (isApprovedMeta || isStatusApproved) {
+            return true
+        }
+
+        // 2. فحص تاريخ تأكيد البريد الإلكتروني في Supabase
+        val emailConfirmedAt = userObj.optString("email_confirmed_at", "")
+        val confirmedAt = userObj.optString("confirmed_at", "")
+        val effectiveConfirmedAt = emailConfirmedAt.ifBlank { confirmedAt }
+
+        if (effectiveConfirmedAt.isBlank()) {
+            return false
+        }
+
+        // إذا كان الحساب قد تم إنشاؤه مع وسم is_approved = false
+        if (userMetadata != null && userMetadata.has("is_approved") && !userMetadata.optBoolean("is_approved", false)) {
+            val createdAt = userObj.optString("created_at", "")
+            val createdTime = parseIsoTime(createdAt)
+            val confirmedTime = parseIsoTime(effectiveConfirmedAt)
+            // إذا كان تاريخ التأكيد لاحقاً لتاريخ الإنشاء بأكثر من 5 ثوانٍ، فهذا تأكيد يدوي من المدير عبر زر Confirm user في Supabase
+            if (createdTime > 0 && confirmedTime > 0 && (confirmedTime - createdTime) > 5000L) {
+                return true
+            }
+            return false
+        }
+
+        return true
+    }
+
+    private fun parseIsoTime(isoString: String): Long {
+        if (isoString.isBlank()) return 0L
+        return try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                java.time.Instant.parse(isoString).toEpochMilli()
+            } else {
+                val cleanStr = isoString.substringBefore(".").substringBefore("Z")
+                val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+                sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+                sdf.parse(cleanStr)?.time ?: 0L
+            }
+        } catch (e: Exception) {
+            0L
         }
     }
 

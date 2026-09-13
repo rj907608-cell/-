@@ -56,6 +56,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -188,10 +189,12 @@ fun PharmacyAuthScreen(
             if (pendingAccount != null) {
                 WaitingActivationView(
                     pendingAccount = pendingAccount!!,
+                    authManager = authManager,
                     isOnline = isOnline,
                     isLoading = isLoading,
                     errorMessage = errorMessage,
                     successNotice = successNotice,
+                    onAuthSuccess = onAuthSuccess,
                     onCheckStatus = {
                         if (!isOnline) {
                             errorMessage = "جهازك غير متصل بالإنترنت. يرجى الاتصال بالإنترنت أولاً."
@@ -205,6 +208,8 @@ fun PharmacyAuthScreen(
                             isLoading = false
                             when (res) {
                                 is AuthResult.Success -> {
+                                    successNotice = "تم تأكيد واعتماد حسابك بنجاح! جاري الدخول..."
+                                    kotlinx.coroutines.delay(800L)
                                     authManager.clearPendingAccount()
                                     onAuthSuccess()
                                 }
@@ -212,7 +217,7 @@ fun PharmacyAuthScreen(
                                     errorMessage = res.message
                                 }
                                 is AuthResult.RequiresEmailVerification -> {
-                                    errorMessage = "الحساب ما زال قيد التفعيل والمراجعة من قبل الإدارة."
+                                    errorMessage = "الحساب ما زال بانتظار التأكيد من الإدارة في Supabase. بمجرد قيام الإدارة بتأكيدك من لوحة التحكم، سيتم فتح التطبيق تلقائياً."
                                 }
                             }
                         }
@@ -674,15 +679,36 @@ fun PharmacyAuthScreen(
 @Composable
 private fun WaitingActivationView(
     pendingAccount: PendingAccountData,
+    authManager: SupabaseAuthManager,
     isOnline: Boolean,
     isLoading: Boolean,
     errorMessage: String?,
     successNotice: String?,
+    onAuthSuccess: () -> Unit,
     onCheckStatus: () -> Unit,
     onChangeAccount: () -> Unit
 ) {
     val context = LocalContext.current
     val numericAccId = String.format("%08d", Math.abs(pendingAccount.email.hashCode().toLong()) % 100000000)
+    var autoApprovedNotice by remember { mutableStateOf<String?>(null) }
+
+    // فحص دوري تلقائي ذكي كل 4 ثوانٍ: بمجرد أن يؤكد المشرف الحساب من لوحة تحكم Supabase، يدخل المستخدم فوراً وبشكل تلقائي دون الحاجة لضغط أي زر
+    LaunchedEffect(pendingAccount.email, isOnline) {
+        if (!isOnline) return@LaunchedEffect
+        while (true) {
+            kotlinx.coroutines.delay(4000L)
+            if (!isLoading && autoApprovedNotice == null) {
+                val res = authManager.signIn(pendingAccount.email, pendingAccount.password)
+                if (res is AuthResult.Success) {
+                    autoApprovedNotice = "تم تأكيد واعتماد حسابك من الإدارة في Supabase بنجاح! جاري الدخول..."
+                    kotlinx.coroutines.delay(1200L)
+                    authManager.clearPendingAccount()
+                    onAuthSuccess()
+                    break
+                }
+            }
+        }
+    }
 
     Card(
         shape = RoundedCornerShape(24.dp),
@@ -886,6 +912,35 @@ private fun WaitingActivationView(
             }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+            // إشعار الدخول التلقائي فور تأكيد الحساب من لوحة تحكم Supabase
+            if (autoApprovedNotice != null) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = autoApprovedNotice!!,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            }
 
             // زر فحص حالة التفعيل بعد قيام الإدارة بتأكيد الحساب
             OutlinedButton(

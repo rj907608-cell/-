@@ -218,10 +218,14 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
                             }
                         }
                         Spacer(modifier = Modifier.width(12.dp))
+                        val currentSession by viewModel.authManager.currentSession.collectAsStateWithLifecycle()
+                        val pharmacyTitle = currentSession?.name?.takeIf { it.isNotBlank() } ?: "الصيدلية"
                         Text(
-                            text = "إدارة الصيدلية",
+                            text = pharmacyTitle,
                             style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                     }
                 },
