@@ -7,6 +7,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,6 +40,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -119,6 +121,11 @@ fun PharmacyAuthScreen(
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var successNotice by remember { mutableStateOf<String?>(null) }
+
+    var logoTapCount by remember { mutableStateOf(0) }
+    var showAdminConfigDialog by remember { mutableStateOf(false) }
+    var adminUrl by remember { mutableStateOf(com.pharmacy.app.data.supabase.SupabaseConfig.SUPABASE_URL) }
+    var adminKey by remember { mutableStateOf(com.pharmacy.app.data.supabase.SupabaseConfig.SUPABASE_KEY) }
 
     Box(
         modifier = Modifier
@@ -231,7 +238,16 @@ fun PharmacyAuthScreen(
                                     MaterialTheme.colorScheme.tertiary
                                 )
                             )
-                        ),
+                        )
+                        .clickable {
+                            logoTapCount++
+                            if (logoTapCount >= 5) {
+                                logoTapCount = 0
+                                adminUrl = com.pharmacy.app.data.supabase.SupabaseConfig.SUPABASE_URL
+                                adminKey = com.pharmacy.app.data.supabase.SupabaseConfig.SUPABASE_KEY
+                                showAdminConfigDialog = true
+                            }
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -483,12 +499,21 @@ fun PharmacyAuthScreen(
 
                                 coroutineScope.launch {
                                     if (isSignUpMode) {
-                                        // عند إنشاء حساب جديد والجهاز متصل بالإنترنت:
-                                        authManager.savePendingAccount(name, email, password)
-                                        authManager.signUp(email, password, name)
+                                        val res = authManager.signUp(email, password, name)
                                         isLoading = false
-                                        // الانتقال مباشرة إلى واجهة الانتظار
-                                        pendingAccount = authManager.getPendingAccount()
+                                        when (res) {
+                                            is AuthResult.Success -> {
+                                                authManager.clearPendingAccount()
+                                                onAuthSuccess()
+                                            }
+                                            is AuthResult.RequiresEmailVerification -> {
+                                                authManager.savePendingAccount(name, email, password)
+                                                pendingAccount = authManager.getPendingAccount()
+                                            }
+                                            is AuthResult.Error -> {
+                                                errorMessage = res.message
+                                            }
+                                        }
                                     } else {
                                         // تسجيل الدخول
                                         val res = authManager.signIn(email, password)
@@ -569,6 +594,69 @@ fun PharmacyAuthScreen(
                         }
                     }
                 }
+            }
+
+            if (showAdminConfigDialog) {
+                AlertDialog(
+                    onDismissRequest = { showAdminConfigDialog = false },
+                    title = {
+                        Text(
+                            text = "إعدادات الربط السحابي (خاص بالمسؤول)",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
+                    },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(
+                                text = "أدخل بيانات مشروع Supabase لربط قاعدة البيانات وتسجيل المستخدمين مباشرة في لوحة التحكم:",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            OutlinedTextField(
+                                value = adminUrl,
+                                onValueChange = { adminUrl = it },
+                                label = { Text("Project URL") },
+                                placeholder = { Text("https://xxx.supabase.co") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            OutlinedTextField(
+                                value = adminKey,
+                                onValueChange = { adminKey = it },
+                                label = { Text("anon public key") },
+                                placeholder = { Text("eyJhbGciOi...") },
+                                singleLine = false,
+                                maxLines = 3,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                if (adminUrl.isNotBlank() && adminKey.isNotBlank()) {
+                                    com.pharmacy.app.data.supabase.SupabaseConfig.saveCustomConfig(
+                                        context,
+                                        adminUrl.trim(),
+                                        adminKey.trim()
+                                    )
+                                    Toast.makeText(context, "تم حفظ وتفعيل الاتصال السحابي بنجاح", Toast.LENGTH_SHORT).show()
+                                    showAdminConfigDialog = false
+                                } else {
+                                    Toast.makeText(context, "يرجى تعبئة الرابط والمفتاح", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        ) {
+                            Text("حفظ وتفعيل")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showAdminConfigDialog = false }) {
+                            Text("إلغاء")
+                        }
+                    }
+                )
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -729,7 +817,7 @@ private fun WaitingActivationView(
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = "اتصال بالدعم ($SUPPORT_PHONE_NUMBER)",
+                            text = "اتصال بالدعم",
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp
                         )
@@ -773,7 +861,7 @@ private fun WaitingActivationView(
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = "محادثة واتساب ($SUPPORT_PHONE_NUMBER)",
+                            text = "محادثة واتساب",
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,
                             color = Color.White

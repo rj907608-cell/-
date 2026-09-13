@@ -88,10 +88,8 @@ class SupabaseAuthManager(context: Context) {
      * تسجيل حساب جديد عبر Supabase Auth (Sign Up)
      */
     suspend fun signUp(email: String, password: String, name: String): AuthResult = withContext(Dispatchers.IO) {
-        savePendingAccount(name, email, password)
-
         if (!SupabaseConfig.isConfigured) {
-            return@withContext AuthResult.RequiresEmailVerification(email, name)
+            return@withContext AuthResult.Error("لم يتم ربط التطبيق بمشروع Supabase الخاص بك بعد. (اضغط 5 مرات على شعار الصيدلية في الأعلى لإدخال رابط المشروع ومفتاحك، أو أرسلهما في المحادثة لربطهما تلقائياً)")
         }
 
         try {

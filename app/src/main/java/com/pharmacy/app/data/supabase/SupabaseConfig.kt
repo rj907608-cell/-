@@ -31,17 +31,24 @@ object SupabaseConfig {
         }
     }
 
+    private const val DEFAULT_PROJECT_URL = "https://irnsiaarcxtkfzychsjh.supabase.co"
+    private const val DEFAULT_PROJECT_KEY = "sb_publishable_1btKMVVJqRJhGqa88chnUQ_IcesrfZE"
+
     val SUPABASE_URL: String
         get() {
             val custom = cachedUrl ?: prefs?.getString(KEY_CUSTOM_URL, null)
             if (!custom.isNullOrBlank() && !custom.contains("your-project")) {
                 return custom.trim().trimEnd('/')
             }
-            return try {
+            val fromBuild = try {
                 BuildConfig.SUPABASE_URL.trim().trimEnd('/')
             } catch (e: Throwable) {
                 ""
             }
+            if (fromBuild.isNotBlank() && !fromBuild.contains("your-project")) {
+                return fromBuild
+            }
+            return DEFAULT_PROJECT_URL
         }
 
     val SUPABASE_KEY: String
@@ -50,11 +57,15 @@ object SupabaseConfig {
             if (!custom.isNullOrBlank() && !custom.contains("your-publishable-key")) {
                 return custom.trim()
             }
-            return try {
+            val fromBuild = try {
                 BuildConfig.SUPABASE_KEY.trim()
             } catch (e: Throwable) {
                 ""
             }
+            if (fromBuild.isNotBlank() && !fromBuild.contains("your-publishable-key")) {
+                return fromBuild
+            }
+            return DEFAULT_PROJECT_KEY
         }
 
     val isConfigured: Boolean
