@@ -295,23 +295,9 @@ fun PharmacyAuthScreen(
                     fontSize = 22.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onBackground,
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(bottom = 20.dp)
                 )
-
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
-                    modifier = Modifier.padding(top = 8.dp, bottom = 20.dp)
-                ) {
-                    Text(
-                        text = "المنظومة الاحترافية لإدارة المبيعات والمخزون الصيدلاني",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.primary,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                    )
-                }
 
                 // التبديل بين إنشاء حساب وتسجيل الدخول بتصميم انسيابي عصري
                 Surface(
