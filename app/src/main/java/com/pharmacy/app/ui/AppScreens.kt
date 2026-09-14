@@ -1,5 +1,6 @@
 package com.pharmacy.app.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
@@ -29,6 +30,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddShoppingCart
@@ -209,7 +211,7 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
     var showAddMedicineDialog by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showProfileDialog by remember { mutableStateOf(false) }
-    var showAlertsDialog by remember { mutableStateOf(false) }
+    var showFullScreenAlerts by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val uiMessage by viewModel.uiMessage.collectAsStateWithLifecycle()
@@ -246,8 +248,64 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
         }
     }
 
-    Scaffold(
-        topBar = {
+    if (showFullScreenAlerts) {
+        BackHandler {
+            showFullScreenAlerts = false
+        }
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text(
+                                text = "التنبيهات الذكية",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp
+                            )
+                            Text(
+                                text = "الأدوية المنتهية، نواقص المخزون، وقريبة الانتهاء",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(
+                            onClick = { showFullScreenAlerts = false },
+                            modifier = Modifier.testTag("back_from_alerts_btn")
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "رجوع"
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
+                )
+            }
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+                    .padding(innerPadding)
+            ) {
+                AlertsScreen(
+                    viewModel = viewModel,
+                    onOpenSettings = {
+                        showFullScreenAlerts = false
+                        coroutineScope.launch {
+                            pagerState.animateScrollToPage(AppTab.SETTINGS.ordinal)
+                        }
+                    }
+                )
+            }
+        }
+    } else {
+        Scaffold(
+            topBar = {
             TopAppBar(
                 title = {
                     Row(
@@ -306,16 +364,16 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
                         )
                     }
 
-                    // أيقونة التنبيهات بالشريط العلوي بنفس لون أيقونة الملف الشخصي (ليست حمراء)
+                    // أيقونة التنبيهات بالشريط العلوي باللون الأخضر مع شارة باللون الأحمر لعدد التنبيهات
                     IconButton(
-                        onClick = { showAlertsDialog = true },
+                        onClick = { showFullScreenAlerts = true },
                         modifier = Modifier.testTag("open_alerts_action")
                     ) {
                         if (totalAlerts > 0) {
                             BadgedBox(
                                 badge = {
                                     Badge(
-                                        containerColor = MaterialTheme.colorScheme.primary,
+                                        containerColor = StatusAlertRed,
                                         contentColor = Color.White
                                     ) {
                                         Text("$totalAlerts")
@@ -456,68 +514,7 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
             }
         }
     }
-
-    // نافذة عرض التنبيهات الذكية عند الضغط على أيقونة الإشعارات العلوية
-    if (showAlertsDialog) {
-        AlertDialog(
-            onDismissRequest = { showAlertsDialog = false },
-            confirmButton = {
-                TextButton(onClick = { showAlertsDialog = false }) {
-                    Text("إغلاق", fontWeight = FontWeight.Bold)
-                }
-            },
-            title = {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        modifier = Modifier.size(38.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Default.NotificationsActive,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-                    }
-                    Column {
-                        Text(
-                            text = "التنبيهات والإشعارات",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp
-                        )
-                        Text(
-                            text = "الأدوية المنتهية ونواقص المخزون",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            },
-            text = {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(440.dp)
-                ) {
-                    AlertsScreen(
-                        viewModel = viewModel,
-                        onOpenSettings = {
-                            showAlertsDialog = false
-                            coroutineScope.launch {
-                                pagerState.animateScrollToPage(AppTab.SETTINGS.ordinal)
-                            }
-                        }
-                    )
-                }
-            }
-        )
-    }
+}
 
     // نافذة إعدادات الصيدلية والتنبيهات
     val expiryAlertDays by viewModel.expiryAlertDays.collectAsStateWithLifecycle()
