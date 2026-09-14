@@ -114,6 +114,7 @@ import kotlin.math.roundToInt
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
@@ -124,6 +125,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.collectAsState
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudOff
+import com.pharmacy.app.data.sync.NetworkConnectivityMonitor
+import com.pharmacy.app.data.sync.SyncStatus
 import com.example.ui.theme.PharmacyPrimary
 import com.example.ui.theme.StatusAlertRed
 import com.example.ui.theme.StatusSuccessGreen
@@ -145,7 +156,43 @@ enum class AppTab(val title: String, val icon: ImageVector) {
     POS("نقطة البيع", Icons.Default.PointOfSale),
     INVENTORY("المخزون", Icons.Default.Inventory2),
     ALERTS("التنبيهات", Icons.Default.NotificationsActive),
-    REPORTS("التقارير", Icons.Default.Assessment)
+    SETTINGS("الإعدادات", Icons.Default.Settings)
+}
+
+/**
+ * نص ديناميكي ذكي لعنوان واسم الصيدلية أو الصيدلي يتكيف ويكبر ويصغر تلقائياً
+ * ليتناسب تماماً مع المساحة المتاحة على الشاشة دون قطع الكلمات
+ */
+@Composable
+fun AutoSizingPharmacyTitle(
+    text: String,
+    modifier: Modifier = Modifier
+) {
+    var currentFontSize by remember(text) { mutableStateOf(20.sp) }
+    var readyToDraw by remember(text) { mutableStateOf(false) }
+
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleLarge.copy(fontSize = currentFontSize),
+        fontWeight = FontWeight.Bold,
+        maxLines = 1,
+        softWrap = false,
+        overflow = TextOverflow.Clip,
+        modifier = modifier.drawWithContent {
+            if (readyToDraw) drawContent()
+        },
+        onTextLayout = { layoutResult ->
+            if (layoutResult.didOverflowWidth) {
+                if (currentFontSize.value > 10f) {
+                    currentFontSize = (currentFontSize.value - 1f).coerceAtLeast(10f).sp
+                } else {
+                    readyToDraw = true
+                }
+            } else {
+                readyToDraw = true
+            }
+        }
+    )
 }
 
 /**
@@ -202,30 +249,32 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
         topBar = {
             TopAppBar(
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(end = 4.dp)
+                    ) {
                         Surface(
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.primaryContainer,
-                            modifier = Modifier.size(40.dp)
+                            modifier = Modifier.size(38.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = Icons.Default.LocalPharmacy,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(24.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
                         }
-                        Spacer(modifier = Modifier.width(12.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
                         val currentSession by viewModel.authManager.currentSession.collectAsStateWithLifecycle()
                         val pharmacyTitle = currentSession?.name?.takeIf { it.isNotBlank() } ?: "الصيدلية"
-                        Text(
+                        AutoSizingPharmacyTitle(
                             text = pharmacyTitle,
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            modifier = Modifier.weight(1f)
                         )
                     }
                 },
@@ -244,18 +293,6 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
                         )
                     }
 
-                    // زر تشغيل ماسح الباركود
-                    IconButton(
-                        onClick = { showScannerDialog = true },
-                        modifier = Modifier.testTag("open_scanner_action")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.QrCodeScanner,
-                            contentDescription = "مسح الباركود",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-
                     // زر الملف الشخصي ومعلومات الحساب وتسجيل الخروج
                     IconButton(
                         onClick = { showProfileDialog = true },
@@ -268,16 +305,39 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
                         )
                     }
 
-                    // زر إعدادات الصيدلية والتنبيهات
+                    // أيقونة التنبيهات أصبحت مكان أيقونة الإعدادات
                     IconButton(
-                        onClick = { showSettingsDialog = true },
-                        modifier = Modifier.testTag("open_settings_action")
+                        onClick = {
+                            coroutineScope.launch {
+                                pagerState.animateScrollToPage(AppTab.ALERTS.ordinal)
+                            }
+                        },
+                        modifier = Modifier.testTag("open_alerts_action")
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "الإعدادات والتنبيهات",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
+                        if (totalAlerts > 0) {
+                            BadgedBox(
+                                badge = {
+                                    Badge(
+                                        containerColor = StatusAlertRed,
+                                        contentColor = Color.White
+                                    ) {
+                                        Text("$totalAlerts")
+                                    }
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.NotificationsActive,
+                                    contentDescription = "التنبيهات",
+                                    tint = StatusAlertRed
+                                )
+                            }
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.NotificationsActive,
+                                contentDescription = "التنبيهات",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -397,9 +457,16 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
                 )
                 AppTab.ALERTS -> AlertsScreen(
                     viewModel = viewModel,
-                    onOpenSettings = { showSettingsDialog = true }
+                    onOpenSettings = {
+                        coroutineScope.launch {
+                            pagerState.animateScrollToPage(AppTab.SETTINGS.ordinal)
+                        }
+                    }
                 )
-                AppTab.REPORTS -> ReportsScreen(viewModel = viewModel)
+                AppTab.SETTINGS -> SettingsScreen(
+                    viewModel = viewModel,
+                    onOpenProfile = { showProfileDialog = true }
+                )
             }
         }
     }
@@ -1659,6 +1726,365 @@ fun ReportsScreen(viewModel: MainViewModel) {
                 }
             }
         )
+    }
+}
+
+/**
+ * شاشة الإعدادات والتقارير الموحدة
+ * تنزيل الإعدادات إلى الشريط السفلي مكان التقارير مع الحفاظ التام على شاشة التقارير
+ */
+@Composable
+fun SettingsScreen(
+    viewModel: MainViewModel,
+    onOpenProfile: () -> Unit
+) {
+    var selectedSection by remember { mutableStateOf(0) } // 0: الإعدادات, 1: تقارير المبيعات
+    val coroutineScope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val connectivityMonitor = remember { NetworkConnectivityMonitor(context) }
+    val isOnline by connectivityMonitor.isOnline.collectAsState(initial = connectivityMonitor.isCurrentlyConnected())
+    val syncStatus by viewModel.syncStatus.collectAsStateWithLifecycle()
+    val isSyncing = syncStatus is SyncStatus.Syncing
+    val expiryAlertDays by viewModel.expiryAlertDays.collectAsStateWithLifecycle()
+    val currentSession by viewModel.authManager.currentSession.collectAsStateWithLifecycle()
+    val isDarkTheme by viewModel.isDarkTheme.collectAsStateWithLifecycle()
+
+    var minStockSlider by remember { mutableStateOf(10f) }
+    var expiryDaysSlider by remember(expiryAlertDays) { mutableStateOf(expiryAlertDays.toFloat()) }
+    var saveSuccessMessage by remember { mutableStateOf<String?>(null) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
+        // شريط التبديل العلوي بين إعدادات الصيدلية وتقارير المبيعات
+        TabRow(
+            selectedTabIndex = selectedSection,
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Tab(
+                selected = selectedSection == 0,
+                onClick = { selectedSection = 0 },
+                text = { Text("إعدادات الصيدلية", fontWeight = if (selectedSection == 0) FontWeight.Bold else FontWeight.Normal) },
+                icon = { Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                modifier = Modifier.testTag("tab_settings_config")
+            )
+            Tab(
+                selected = selectedSection == 1,
+                onClick = { selectedSection = 1 },
+                text = { Text("تقارير المبيعات", fontWeight = if (selectedSection == 1) FontWeight.Bold else FontWeight.Normal) },
+                icon = { Icon(Icons.Default.Assessment, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                modifier = Modifier.testTag("tab_settings_reports")
+            )
+        }
+
+        if (selectedSection == 1) {
+            // شاشة تقارير المبيعات المحفوظة بالكامل
+            ReportsScreen(viewModel = viewModel)
+        } else {
+            // شاشة الإعدادات وتخصيص التنبيهات والمزامنة
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // إشعار نجاح حفظ الإعدادات
+                AnimatedVisibility(visible = saveSuccessMessage != null) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = saveSuccessMessage ?: "",
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+                }
+
+                // 1. بطاقة معلومات الحساب والصيدلية
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = "بيانات الصيدلية والحساب",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    modifier = Modifier.size(44.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.Person,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = currentSession?.name?.takeIf { it.isNotBlank() } ?: "الصيدلية",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp
+                                    )
+                                    Text(
+                                        text = currentSession?.email ?: "حساب مسجل",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            OutlinedButton(
+                                onClick = onOpenProfile,
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text("الملف الشخصي", fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+
+                // 2. بطاقة إعداد الحد الأدنى الافتراضي لنقص الكمية
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "الحد الأدنى لنقص الكمية",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer
+                            ) {
+                                Text(
+                                    text = "${minStockSlider.roundToInt()} علب",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = "القيمة الافتراضية للحد الأدنى لتنبيه نفاذ الكمية في شاشة التنبيهات:",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Slider(
+                            value = minStockSlider,
+                            onValueChange = { minStockSlider = it },
+                            valueRange = 1f..50f,
+                            steps = 48,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("settings_min_stock_slider")
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("1 علبة", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("25 علبة", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("50 علبة", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+
+                // 3. بطاقة إعداد مهلة تنبيه اقتراب انتهاء الصلاحية
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "تنبيه قبل انتهاء الصلاحية",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer
+                            ) {
+                                Text(
+                                    text = "${expiryDaysSlider.roundToInt()} يوم",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = "عدد الأيام المسبقة لتنبيهك باقتراب تاريخ انتهاء صلاحية الأدوية:",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Slider(
+                            value = expiryDaysSlider,
+                            onValueChange = { expiryDaysSlider = it },
+                            valueRange = 15f..180f,
+                            steps = 32,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("settings_expiry_days_slider")
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("15 يوم", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("3 أشهر (90 يوم)", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("6 أشهر (180 يوم)", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+
+                // زر حفظ التعديلات
+                Button(
+                    onClick = {
+                        val days = expiryDaysSlider.roundToInt()
+                        viewModel.updateExpiryAlertDays(days)
+                        saveSuccessMessage = "تم حفظ إعدادات التنبيهات بنجاح!"
+                        coroutineScope.launch {
+                            delay(2500L)
+                            saveSuccessMessage = null
+                        }
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                        .testTag("save_settings_btn")
+                ) {
+                    Icon(imageVector = Icons.Default.Done, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("حفظ التعديلات", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                }
+
+                // 4. بطاقة المزامنة والنسخ السحابي
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "المزامنة السحابية",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = if (isOnline) StatusSuccessGreen else StatusAlertRed,
+                                modifier = Modifier.size(10.dp)
+                            ) {}
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (isOnline) "متصل بالسحابة (مزامنة فورية)" else "غير متصل بالإنترنت - يتم الحفظ محلياً",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Button(
+                            onClick = {
+                                viewModel.triggerSyncNow()
+                                viewModel.pullCloudDataNow()
+                            },
+                            enabled = !isSyncing && isOnline,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            if (isSyncing) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("جاري المزامنة...")
+                            } else {
+                                Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("مزامنة فورية مع السحابة")
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

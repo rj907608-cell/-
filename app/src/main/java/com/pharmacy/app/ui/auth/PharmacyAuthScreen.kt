@@ -131,7 +131,15 @@ fun PharmacyAuthScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.06f),
+                        MaterialTheme.colorScheme.background,
+                        MaterialTheme.colorScheme.background
+                    )
+                )
+            )
             .imePadding()
     ) {
         Column(
@@ -148,8 +156,9 @@ fun PharmacyAuthScreen(
                 exit = fadeOut()
             ) {
                 Card(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(containerColor = AlertRed),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 16.dp)
@@ -161,12 +170,20 @@ fun PharmacyAuthScreen(
                             .padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.WifiOff,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(24.dp)
-                        )
+                        Surface(
+                            shape = CircleShape,
+                            color = Color.White.copy(alpha = 0.2f),
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.WifiOff,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
@@ -231,19 +248,12 @@ fun PharmacyAuthScreen(
                 )
             } else {
                 // شاشة تسجيل الدخول / إنشاء الحساب
-                // الشعار والعنوان الترحيبي الجذاب
+                // الشعار والعنوان الترحيبي الجذاب بلمسة عصرية راقية
                 Box(
                     modifier = Modifier
-                        .size(80.dp)
+                        .size(88.dp)
                         .clip(CircleShape)
-                        .background(
-                            Brush.linearGradient(
-                                colors = listOf(
-                                    MaterialTheme.colorScheme.primary,
-                                    MaterialTheme.colorScheme.tertiary
-                                )
-                            )
-                        )
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
                         .clickable {
                             logoTapCount++
                             if (logoTapCount >= 5) {
@@ -255,12 +265,27 @@ fun PharmacyAuthScreen(
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.LocalPharmacy,
-                        contentDescription = "شعار الصيدلية",
-                        tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(42.dp)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(70.dp)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.linearGradient(
+                                    colors = listOf(
+                                        MaterialTheme.colorScheme.primary,
+                                        MaterialTheme.colorScheme.tertiary
+                                    )
+                                )
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.LocalPharmacy,
+                            contentDescription = "شعار الصيدلية",
+                            tint = Color.White,
+                            modifier = Modifier.size(38.dp)
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
@@ -273,21 +298,28 @@ fun PharmacyAuthScreen(
                     textAlign = TextAlign.Center
                 )
 
-                Text(
-                    text = "المنظومة الاحترافية لإدارة المبيعات والمخزون الصيدلاني",
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)
-                )
-
-                // التبديل بين إنشاء حساب وتسجيل الدخول
                 Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                    modifier = Modifier.padding(top = 8.dp, bottom = 20.dp)
+                ) {
+                    Text(
+                        text = "المنظومة الاحترافية لإدارة المبيعات والمخزون الصيدلاني",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.primary,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                    )
+                }
+
+                // التبديل بين إنشاء حساب وتسجيل الدخول بتصميم انسيابي عصري
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 16.dp)
+                        .padding(bottom = 18.dp)
                 ) {
                     Row(
                         modifier = Modifier
@@ -304,9 +336,11 @@ fun PharmacyAuthScreen(
                                 containerColor = if (isSignUpMode) MaterialTheme.colorScheme.primary else Color.Transparent,
                                 contentColor = if (isSignUpMode) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                             ),
-                            shape = RoundedCornerShape(10.dp),
+                            shape = RoundedCornerShape(12.dp),
                             elevation = if (isSignUpMode) ButtonDefaults.buttonElevation(defaultElevation = 2.dp) else ButtonDefaults.buttonElevation(0.dp),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp)
                         ) {
                             Text(
                                 text = "إنشاء حساب جديد",
@@ -325,9 +359,11 @@ fun PharmacyAuthScreen(
                                 containerColor = if (!isSignUpMode) MaterialTheme.colorScheme.primary else Color.Transparent,
                                 contentColor = if (!isSignUpMode) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                             ),
-                            shape = RoundedCornerShape(10.dp),
+                            shape = RoundedCornerShape(12.dp),
                             elevation = if (!isSignUpMode) ButtonDefaults.buttonElevation(defaultElevation = 2.dp) else ButtonDefaults.buttonElevation(0.dp),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp)
                         ) {
                             Text(
                                 text = "تسجيل الدخول",
@@ -340,7 +376,7 @@ fun PharmacyAuthScreen(
 
                 // بطاقة نموذج الإدخال
                 Card(
-                    shape = RoundedCornerShape(20.dp),
+                    shape = RoundedCornerShape(22.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
                     modifier = Modifier.fillMaxWidth()
@@ -348,7 +384,7 @@ fun PharmacyAuthScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(20.dp),
+                            .padding(22.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         Text(
@@ -368,8 +404,13 @@ fun PharmacyAuthScreen(
                                 },
                                 label = { Text("اسم الصيدلية أو المسؤول") },
                                 leadingIcon = {
-                                    Icon(imageVector = Icons.Default.Person, contentDescription = null)
+                                    Icon(
+                                        imageVector = Icons.Default.Person,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
                                 },
+                                shape = RoundedCornerShape(14.dp),
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                                 modifier = Modifier
@@ -387,8 +428,13 @@ fun PharmacyAuthScreen(
                             },
                             label = { Text("البريد الإلكتروني") },
                             leadingIcon = {
-                                Icon(imageVector = Icons.Default.Email, contentDescription = null)
+                                Icon(
+                                    imageVector = Icons.Default.Email,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
                             },
+                            shape = RoundedCornerShape(14.dp),
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(
                                 keyboardType = KeyboardType.Email,
@@ -408,7 +454,11 @@ fun PharmacyAuthScreen(
                             },
                             label = { Text("كلمة المرور") },
                             leadingIcon = {
-                                Icon(imageVector = Icons.Default.Lock, contentDescription = null)
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
                             },
                             trailingIcon = {
                                 IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
@@ -419,6 +469,7 @@ fun PharmacyAuthScreen(
                                 }
                             },
                             visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                            shape = RoundedCornerShape(14.dp),
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(
                                 keyboardType = KeyboardType.Password,
@@ -444,7 +495,11 @@ fun PharmacyAuthScreen(
                                 },
                                 label = { Text("تأكيد كلمة المرور") },
                                 leadingIcon = {
-                                    Icon(imageVector = Icons.Default.LockReset, contentDescription = null)
+                                    Icon(
+                                        imageVector = Icons.Default.LockReset,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
                                 },
                                 trailingIcon = {
                                     IconButton(onClick = { isConfirmPasswordVisible = !isConfirmPasswordVisible }) {
@@ -455,6 +510,7 @@ fun PharmacyAuthScreen(
                                     }
                                 },
                                 visualTransformation = if (isConfirmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                shape = RoundedCornerShape(14.dp),
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(
                                     keyboardType = KeyboardType.Password,
@@ -466,6 +522,8 @@ fun PharmacyAuthScreen(
                                     .testTag("auth_confirm_password_field")
                             )
                         }
+
+                        Spacer(modifier = Modifier.height(4.dp))
 
                         // زر الإجراء الأساسي
                         Button(
@@ -546,7 +604,7 @@ fun PharmacyAuthScreen(
                                 }
                             },
                             enabled = !isLoading,
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(14.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(52.dp)
@@ -570,7 +628,7 @@ fun PharmacyAuthScreen(
                         // رسائل الخطأ والتنبيهات
                         if (errorMessage != null) {
                             Surface(
-                                shape = RoundedCornerShape(10.dp),
+                                shape = RoundedCornerShape(12.dp),
                                 color = MaterialTheme.colorScheme.errorContainer,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
@@ -585,7 +643,7 @@ fun PharmacyAuthScreen(
 
                         if (successNotice != null) {
                             Surface(
-                                shape = RoundedCornerShape(10.dp),
+                                shape = RoundedCornerShape(12.dp),
                                 color = MaterialTheme.colorScheme.primaryContainer,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
@@ -711,7 +769,7 @@ private fun WaitingActivationView(
     }
 
     Card(
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(26.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
         modifier = Modifier
@@ -725,26 +783,34 @@ private fun WaitingActivationView(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // أيقونة الساعة والانتظار الأنيقة
+            // أيقونة الساعة والانتظار الأنيقة بهالة عصرية
             Box(
                 modifier = Modifier
-                    .size(76.dp)
+                    .size(84.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer),
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Default.HourglassTop,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(38.dp)
-                )
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.HourglassTop,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(34.dp)
+                    )
+                }
             }
 
             Text(
                 text = "نرجو الانتظار حتى يتم تفعيل حسابك",
-                fontWeight = FontWeight.Bold,
-                fontSize = 19.sp,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 20.sp,
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center
             )
@@ -754,18 +820,18 @@ private fun WaitingActivationView(
                 fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
-                lineHeight = 18.sp
+                lineHeight = 20.sp
             )
 
-            // بطاقة تفاصيل الحساب المسجل
+            // بطاقة تفاصيل الحساب المسجل بتصميم أنيق
             Surface(
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(14.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     if (pendingAccount.name.isNotBlank()) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -841,13 +907,13 @@ private fun WaitingActivationView(
                             Toast.makeText(context, "تعذر فتح لوحة الاتصال", Toast.LENGTH_SHORT).show()
                         }
                     },
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(50.dp)
+                        .height(52.dp)
                         .testTag("call_support_button")
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -883,14 +949,14 @@ private fun WaitingActivationView(
                             Toast.makeText(context, "تعذر فتح تطبيق واتساب", Toast.LENGTH_SHORT).show()
                         }
                     },
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = WhatsAppGreen,
                         contentColor = Color.White
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(50.dp)
+                        .height(52.dp)
                         .testTag("whatsapp_support_button")
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -916,7 +982,7 @@ private fun WaitingActivationView(
             // إشعار الدخول التلقائي فور تأكيد الحساب من لوحة تحكم Supabase
             if (autoApprovedNotice != null) {
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(14.dp),
                     color = MaterialTheme.colorScheme.primaryContainer,
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -946,10 +1012,10 @@ private fun WaitingActivationView(
             OutlinedButton(
                 onClick = onCheckStatus,
                 enabled = !isLoading,
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(14.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(48.dp)
+                    .height(50.dp)
                     .testTag("check_activation_status_button")
             ) {
                 if (isLoading) {
