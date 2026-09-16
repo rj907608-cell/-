@@ -543,7 +543,8 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
     if (showScannerDialog) {
         BarcodeScannerDialog(
             onBarcodeScanned = { barcode ->
-                viewModel.onBarcodeScanned(barcode)
+                viewModel.onSearchQueryChanged(barcode.trim())
+                showScannerDialog = false
             },
             onDismiss = { showScannerDialog = false }
         )
@@ -570,9 +571,7 @@ fun MainPharmacyScreen(viewModel: MainViewModel) {
                 showAddMedicineDialog = false
                 medicineToEdit = null
             },
-            onScanBarcodeRequested = {
-                showScannerDialog = true
-            }
+            onScanBarcodeRequested = {}
         )
     }
 }
@@ -2086,6 +2085,13 @@ fun AddEditMedicineDialog(
 ) {
     var name by remember { mutableStateOf(initialMedicine?.name ?: "") }
     var barcode by remember { mutableStateOf(if (presetBarcode.isNotBlank()) presetBarcode else (initialMedicine?.barcode ?: "")) }
+    var showInternalScanner by remember { mutableStateOf(false) }
+
+    LaunchedEffect(presetBarcode) {
+        if (presetBarcode.isNotBlank()) {
+            barcode = presetBarcode
+        }
+    }
     var buyPriceText by remember { mutableStateOf(if (initialMedicine != null && initialMedicine.buyPrice > 0.0) initialMedicine.buyPrice.toString() else "") }
     var sellPriceText by remember { mutableStateOf(if (initialMedicine != null && initialMedicine.sellPrice > 0.0) initialMedicine.sellPrice.toString() else "") }
     var quantityText by remember { mutableStateOf(if (initialMedicine != null && initialMedicine.quantity > 0) initialMedicine.quantity.toString() else "") }
@@ -2162,7 +2168,7 @@ fun AddEditMedicineDialog(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     IconButton(
-                        onClick = onScanBarcodeRequested,
+                        onClick = { showInternalScanner = true },
                         modifier = Modifier.testTag("scan_barcode_for_add_btn")
                     ) {
                         Icon(
@@ -2359,6 +2365,16 @@ fun AddEditMedicineDialog(
             }
         }
     )
+
+    if (showInternalScanner) {
+        BarcodeScannerDialog(
+            onBarcodeScanned = { scanned ->
+                barcode = scanned.trim()
+                showInternalScanner = false
+            },
+            onDismiss = { showInternalScanner = false }
+        )
+    }
 }
 
 /**
