@@ -15,10 +15,8 @@ import android.util.Size
 import android.view.MotionEvent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.OptIn
 import androidx.camera.core.CameraControl
 import androidx.camera.core.CameraSelector
-import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
@@ -87,10 +85,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
-import com.google.mlkit.vision.barcode.BarcodeScannerOptions
-import com.google.mlkit.vision.barcode.BarcodeScanning
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.common.InputImage
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.DecodeHintType
@@ -102,7 +96,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /**
- * تشغيل اهتزاز ونغمة تنبيه لطيفة عند التقاط الباركود بنجاح
+ * تنبيه صوتي واهتزاز لطيف عند قراءة الباركود بنجاح
  */
 private fun playScanFeedback(context: Context) {
     try {
@@ -124,95 +118,48 @@ private fun playScanFeedback(context: Context) {
     } catch (_: Exception) {}
 
     try {
-        val tone = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 90)
-        tone.startTone(ToneGenerator.TONE_PROP_BEEP, 120)
+        val tone = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 85)
+        tone.startTone(ToneGenerator.TONE_PROP_BEEP, 100)
     } catch (_: Exception) {}
 }
 
 /**
- * محلل الباركود المزدوج: يعتمد على محرك Google ML Kit الذكي لدعم جميع باركودات الأدوية (EAN-13, EAN-8, UPC, Code 128)
- * مع محرك ZXing الداعم للدوران وتصحيح الإضاءة كخيار احتياطي أوفلاين 100%.
+ * محلل الباركود الخفيف والسريع جداً (Pure ZXing Engine):
+ * 1. يعمل 100% بدون إنترنت (Offline).
+ * 2. لا يضيف أي مكتبات خارجية ثقيلة (حجمه < 0.5 MB).
+ * 3. يدعم تدوير زاوية الكاميرا الحقيقية لتصحيح وضع الهاتف العمودي والأفقي.
+ * 4. يقرأ الباركودات الدوائية EAN-13, EAN-8, UPC, Code 128 بسرعة فائقة باستخدام GlobalHistogramBinarizer.
  */
 class BarcodeAnalyzer(
     private val onBarcodeDetected: (String) -> Unit
 ) : ImageAnalysis.Analyzer {
 
-    private val mlKitOptions = BarcodeScannerOptions.Builder()
-        .setBarcodeFormats(
-            Barcode.FORMAT_EAN_13,
-            Barcode.FORMAT_EAN_8,
-            Barcode.FORMAT_UPC_A,
-            Barcode.FORMAT_UPC_E,
-            Barcode.FORMAT_CODE_128,
-            Barcode.FORMAT_CODE_39,
-            Barcode.FORMAT_CODE_93,
-            Barcode.FORMAT_CODABAR,
-            Barcode.FORMAT_ITF,
-            Barcode.FORMAT_QR_CODE,
-            Barcode.FORMAT_DATA_MATRIX
-        )
-        .build()
-
-    private val mlKitScanner = BarcodeScanning.getClient(mlKitOptions)
-
-    private val zxingReader = MultiFormatReader().apply {
-        setHints(
-            mapOf(
-                DecodeHintType.TRY_HARDER to true,
-                DecodeHintType.POSSIBLE_FORMATS to listOf(
-                    BarcodeFormat.EAN_13,
-                    BarcodeFormat.EAN_8,
-                    BarcodeFormat.UPC_A,
-                    BarcodeFormat.UPC_E,
-                    BarcodeFormat.CODE_128,
-                    BarcodeFormat.CODE_39,
-                    BarcodeFormat.QR_CODE
-                )
+    private val reader = MultiFormatReader().apply {
+        val hints = mapOf(
+            DecodeHintType.TRY_HARDER to java.lang.Boolean.TRUE,
+            DecodeHintType.POSSIBLE_FORMATS to listOf(
+                BarcodeFormat.EAN_13,
+                BarcodeFormat.EAN_8,
+                BarcodeFormat.UPC_A,
+                BarcodeFormat.UPC_E,
+                BarcodeFormat.CODE_128,
+                BarcodeFormat.CODE_39,
+                BarcodeFormat.QR_CODE
             )
         )
+        setHints(hints)
     }
 
     private var isDetected = false
     private var lastScannedTime = 0L
 
-    @OptIn(ExperimentalGetImage::class)
     override fun analyze(imageProxy: ImageProxy) {
         val currentTime = System.currentTimeMillis()
-        if (isDetected || currentTime - lastScannedTime < 1000) {
+        if (isDetected || currentTime - lastScannedTime < 900) {
             imageProxy.close()
             return
         }
 
-        val mediaImage = imageProxy.image
-        if (mediaImage != null) {
-            val rotationDegrees = imageProxy.imageInfo.rotationDegrees
-            val inputImage = InputImage.fromMediaImage(mediaImage, rotationDegrees)
-
-            mlKitScanner.process(inputImage)
-                .addOnSuccessListener { barcodes ->
-                    val detectedCode = barcodes.firstOrNull { !it.rawValue.isNullOrBlank() }?.rawValue
-                    if (!detectedCode.isNullOrBlank() && !isDetected) {
-                        isDetected = true
-                        lastScannedTime = currentTime
-                        onBarcodeDetected(detectedCode.trim())
-                    } else {
-                        fallbackZxing(imageProxy, currentTime)
-                    }
-                }
-                .addOnFailureListener {
-                    fallbackZxing(imageProxy, currentTime)
-                }
-                .addOnCompleteListener {
-                    imageProxy.close()
-                }
-        } else {
-            fallbackZxing(imageProxy, currentTime)
-            imageProxy.close()
-        }
-    }
-
-    private fun fallbackZxing(imageProxy: ImageProxy, currentTime: Long) {
-        if (isDetected) return
         try {
             val plane = imageProxy.planes[0]
             val buffer = plane.buffer
@@ -221,6 +168,7 @@ class BarcodeAnalyzer(
             val width = imageProxy.width
             val height = imageProxy.height
 
+            // استخراج إضاءة البكسلات بشكل صحيح متوافق مع CameraX
             val yData = ByteArray(width * height)
             for (y in 0 until height) {
                 if (pixelStride == 1) {
@@ -236,38 +184,94 @@ class BarcodeAnalyzer(
             val rotationDegrees = imageProxy.imageInfo.rotationDegrees
             val (rotatedData, finalWidth, finalHeight) = rotateYData(yData, width, height, rotationDegrees)
 
-            val source = PlanarYUVLuminanceSource(
+            // 1. محاولة القراءة في منطقة الوسط (Center Crop) حيث يضع المستخدم باركود علبة الدواء
+            val cropWidth = (finalWidth * 0.80f).toInt()
+            val cropHeight = (finalHeight * 0.50f).toInt()
+            val cropLeft = (finalWidth - cropWidth) / 2
+            val cropTop = (finalHeight - cropHeight) / 2
+
+            val centerSource = PlanarYUVLuminanceSource(
                 rotatedData,
                 finalWidth,
                 finalHeight,
-                0,
-                0,
-                finalWidth,
-                finalHeight,
+                cropLeft,
+                cropTop,
+                cropWidth,
+                cropHeight,
                 false
             )
 
-            var resultText: String? = null
-            try {
-                val bitmap = BinaryBitmap(HybridBinarizer(source))
-                val result = zxingReader.decodeWithState(bitmap)
-                resultText = result?.text
-            } catch (_: Exception) {
-                try {
-                    val bitmap = BinaryBitmap(GlobalHistogramBinarizer(source))
-                    val result = zxingReader.decodeWithState(bitmap)
-                    resultText = result?.text
-                } catch (_: Exception) {}
-            } finally {
-                zxingReader.reset()
+            var scannedText = decodeSource(centerSource)
+
+            // 2. إذا لم يتم الالتقاط في الوسط، نفحص الإطار كاملاً
+            if (scannedText == null) {
+                val fullSource = PlanarYUVLuminanceSource(
+                    rotatedData,
+                    finalWidth,
+                    finalHeight,
+                    0,
+                    0,
+                    finalWidth,
+                    finalHeight,
+                    false
+                )
+                scannedText = decodeSource(fullSource)
             }
 
-            if (!resultText.isNullOrBlank() && !isDetected) {
+            // 3. في حال كانت علبة الدواء مقلوبة أو مستعرضة (90 درجة إضافية)
+            if (scannedText == null) {
+                val (transposedData, transWidth, transHeight) = rotateYData(rotatedData, finalWidth, finalHeight, 90)
+                val transSource = PlanarYUVLuminanceSource(
+                    transposedData,
+                    transWidth,
+                    transHeight,
+                    0,
+                    0,
+                    transWidth,
+                    transHeight,
+                    false
+                )
+                scannedText = decodeSource(transSource)
+            }
+
+            if (!scannedText.isNullOrBlank() && !isDetected) {
                 isDetected = true
                 lastScannedTime = currentTime
-                onBarcodeDetected(resultText.trim())
+                onBarcodeDetected(scannedText.trim())
+            }
+        } catch (_: Exception) {
+            // لا يوجد باركود في هذا الإطار
+        } finally {
+            imageProxy.close()
+        }
+    }
+
+    private fun decodeSource(source: PlanarYUVLuminanceSource): String? {
+        // GlobalHistogramBinarizer مصمم خصيصاً في ZXing للباركودات الخطية 1D كالأدوية EAN-13
+        try {
+            val bitmap = BinaryBitmap(GlobalHistogramBinarizer(source))
+            val result = reader.decodeWithState(bitmap)
+            if (result != null && result.text.isNotBlank()) {
+                return result.text
             }
         } catch (_: Exception) {}
+        finally {
+            reader.reset()
+        }
+
+        // تجربة ثانوية باستخدام HybridBinarizer في حال وجود تدرج إضاءة
+        try {
+            val bitmap = BinaryBitmap(HybridBinarizer(source))
+            val result = reader.decodeWithState(bitmap)
+            if (result != null && result.text.isNotBlank()) {
+                return result.text
+            }
+        } catch (_: Exception) {}
+        finally {
+            reader.reset()
+        }
+
+        return null
     }
 
     private fun rotateYData(
@@ -452,7 +456,7 @@ fun BarcodeScannerDialog(
 
                         // نص إرشادي أسفل إطار المسح
                         Text(
-                            text = "وجّه الكاميرا نحو باركود الدواء (مثل EAN-13)\nالمس الشاشة في حال رغبت بضبط التركيز",
+                            text = "وجّه الكاميرا نحو باركود الدواء (مثل EAN-13)\nالمس الشاشة للتركيز الفوري",
                             color = Color.White.copy(alpha = 0.9f),
                             fontSize = 12.sp,
                             textAlign = TextAlign.Center,
@@ -536,7 +540,7 @@ fun BarcodeScannerDialog(
 }
 
 /**
- * مكون الكاميرا عبر CameraX و PreviewView مع دعم التركيز باللمس والتقريب والدقة العالية
+ * مكون الكاميرا عبر CameraX و PreviewView مع دعم التركيز باللمس والتقريب ودقة 720p HD
  */
 @Composable
 private fun CameraPreviewWithScanner(
@@ -626,7 +630,7 @@ private fun CameraPreviewWithScanner(
 }
 
 /**
- * مستطيل المسح والخط الليزري الأحمر المتحرك وزوايا التركيز
+ * مستطيل المسح والخط الليزري الأحمر المتحرك
  */
 @Composable
 private fun ScannerOverlay() {
