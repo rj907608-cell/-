@@ -866,7 +866,7 @@ fun PosScreen(
             Icon(Icons.Default.CheckCircle, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "إتمام البيع وخصم المخزون (${String.format(Locale.US, "%.2f", cartTotal)} ل.س)",
+                text = "إتمام البيع",
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold
             )
